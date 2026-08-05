@@ -30,6 +30,7 @@ class ModelConfig:
     # trajectory is produced without the autoregressive reasoning rollout that
     # dominates per-step latency. Trades reasoning conditioning for speed.
     skip_cot: bool = False
+    force_determinism: bool = False  # Alpamayo 1 only
 
 
 @dataclass
