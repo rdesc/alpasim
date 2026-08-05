@@ -369,6 +369,37 @@ def _save_video_with_ffmpeg(
             raise RuntimeError("FFmpeg is not installed or not in PATH")
 
 
+def _write_video(frames: list[np.ndarray], output_path: str, fps: int = 10) -> None:
+    """Write RGB frames to an mp4, preferring OpenCV and falling back to FFmpeg.
+
+    OpenCV ships its own encoder, so this works on hosts without a system FFmpeg.
+    """
+    if not frames:
+        logger.warning("No frames to render")
+        return
+
+    height, width = frames[0].shape[:2]
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    if not video_writer.isOpened():
+        logger.warning("OpenCV MPEG-4 writer unavailable, falling back to FFmpeg")
+        _save_video_with_ffmpeg(frames, output_path, fps)
+        return
+
+    logger.info(
+        "Writing %d frames at %dx%d to %s", len(frames), width, height, output_path
+    )
+    for idx, frame in enumerate(tqdm(frames, desc="Writing video")):
+        assert frame.shape[:2] == (height, width), (
+            f"Frame {idx} has shape {frame.shape[:2]}, expected ({height}, {width})"
+        )
+        video_writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+
+    video_writer.release()
+    logger.info("Video saved to: %s", output_path)
+
+
 def _get_camera_frame_numpy(camera, time_us) -> np.ndarray:
     """Extract camera frame as numpy array.
 
@@ -563,48 +594,136 @@ def render_reasoning_overlay_style_video(
 
         output_frames.append(combined_frame)
 
-    # Save video
-    if len(output_frames) > 0:
-        height, width = output_frames[0].shape[:2]
-        fps = 10
+    _write_video(output_frames, output_path, fps=10)
 
-        # Try multiple codecs
-        codecs_to_try = [("mp4v", "MPEG-4")]
 
-        video_writer = None
-        codec_used = None
-        for fourcc_str, codec_name in codecs_to_try:
-            fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
-            video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-            if video_writer.isOpened():
-                codec_used = codec_name
-                logger.info(f"Successfully opened video writer with {codec_name} codec")
-                break
-            else:
-                logger.warning(
-                    f"Failed to open video writer with {codec_name} codec, trying next..."
-                )
+# Tile order for the 2x2 quad-cam view: forward-facing on top, cross views below.
+QUAD_CAM_ORDER = (
+    "camera_front_wide_120fov",
+    "camera_front_tele_30fov",
+    "camera_cross_left_120fov",
+    "camera_cross_right_120fov",
+)
 
-        # Use FFmpeg as fallback
-        if video_writer is None or not video_writer.isOpened():
-            logger.warning(
-                "All OpenCV codecs failed, falling back to FFmpeg subprocess"
-            )
-            _save_video_with_ffmpeg(output_frames, output_path, fps)
-        else:
-            logger.info(
-                f"Writing {len(output_frames)} frames at {width}x{height} to {output_path} using {codec_used}"
-            )
 
-            for idx, frame in enumerate(tqdm(output_frames, desc="Writing video")):
-                assert frame.shape[:2] == (
-                    height,
-                    width,
-                ), f"Frame {idx} has shape {frame.shape[:2]}, expected ({height}, {width})"
-                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                video_writer.write(frame_bgr)
+def _label_frame(frame: np.ndarray, label: str) -> np.ndarray:
+    """Draw a camera name in the bottom-left corner of a frame."""
+    img = Image.fromarray(frame)
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20
+        )
+    except Exception:
+        font = ImageFont.load_default()
 
-            video_writer.release()
-            logger.info(f"Reasoning overlay style video saved to: {output_path}")
-    else:
+    h = frame.shape[0]
+    draw.rectangle([(0, h - 30), (len(label) * 12 + 16, h)], fill=(0, 0, 0))
+    draw.text((8, h - 27), label, fill=(255, 255, 255), font=font)
+    return np.array(img)
+
+
+def _tile_quad(
+    sim_result: SimulationResult, time_us: int, tile_size: tuple[int, int]
+) -> np.ndarray:
+    """Tile the four driver cameras into a single 2x2 frame.
+
+    Cameras absent from the rollout are rendered as black tiles so the output
+    frame size stays constant, which the video writer requires.
+    """
+    tile_w, tile_h = tile_size
+    tiles = []
+    for camera_id in QUAD_CAM_ORDER:
+        camera = sim_result.cameras.camera_by_logical_id.get(camera_id)
+        if camera is None:
+            tiles.append(np.zeros((tile_h, tile_w, 3), dtype=np.uint8))
+            continue
+        frame = _get_camera_frame_numpy(camera, time_us)
+        frame = cv2.resize(frame, (tile_w, tile_h))
+        tiles.append(_label_frame(frame, camera_id))
+
+    top = np.hstack(tiles[:2])
+    bottom = np.hstack(tiles[2:])
+    return np.vstack([top, bottom])
+
+
+def _overlay_nav_text(frame: np.ndarray, nav_text: str | None) -> np.ndarray:
+    """Draw the navigation instruction the model was given, in the top-right.
+
+    Renders "NAV: none" when the driver was not navigation-conditioned, so the
+    video never implies the model received an instruction it did not.
+    """
+    img = Image.fromarray(frame)
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 30
+        )
+    except Exception:
+        font = ImageFont.load_default()
+
+    text = f"NAV: {nav_text}" if nav_text else "NAV: none"
+    w = frame.shape[1]
+    text_w = draw.textlength(text, font=font)
+    padding = 12
+    box_left = w - 10 - text_w - 2 * padding
+    draw.rectangle([(box_left, 10), (w - 10, 58)], fill=(0, 0, 0))
+    draw.text((box_left + padding, 14), text, fill=(120, 220, 255), font=font)
+    return np.array(img)
+
+
+def render_quad_cam_video(
+    sim_result: SimulationResult,
+    output_path: str,
+    cfg: EvalConfig,
+) -> None:
+    """Render all four driver cameras tiled 2x2, with reasoning and nav text.
+
+    Each tile is rendered at half the reference camera's resolution, so the
+    output video is the same size as the single-camera layouts.
+
+    Args:
+        sim_result: The simulation result to render.
+        output_path: Path to save the video.
+        cfg: Evaluation configuration.
+    """
+    logger.info("Rendering quad-cam video")
+
+    timestamps_us = sim_result.timestamps_us
+    driver_responses = sim_result.driver_responses
+    timestamps_to_render = timestamps_us[:: cfg.video.render_every_nth_frame]
+    if len(timestamps_to_render) == 0:
         logger.warning("No frames to render")
+        return
+
+    reference = sim_result.cameras.camera_by_logical_id[cfg.video.camera_id_to_render]
+    reference_frame = _get_camera_frame_numpy(reference, timestamps_to_render[0])
+    tile_size = (reference_frame.shape[1] // 2, reference_frame.shape[0] // 2)
+
+    reasoning_refresh_interval_s = cfg.video.reasoning_text_refresh_interval_s or 0.0
+
+    output_frames = []
+    cached_reasoning = ""
+    cached_nav_text = None
+    last_reasoning_refresh_us = timestamps_to_render[0]
+
+    for time_us in tqdm(timestamps_to_render, desc="Rendering quad-cam frames"):
+        display_time_s = (time_us - timestamps_to_render[0]) / 1_000_000.0
+
+        if time_us in driver_responses.timestamps_us:
+            idx = driver_responses.timestamps_us.index(time_us)
+            response = driver_responses.per_timestep_driver_responses[idx]
+            cached_nav_text = response.nav_text
+            should_refresh = (
+                time_us - last_reasoning_refresh_us
+            ) >= reasoning_refresh_interval_s * 1_000_000
+            if should_refresh and response.reasoning_text is not None:
+                cached_reasoning = response.reasoning_text
+                last_reasoning_refresh_us = time_us
+
+        frame = _tile_quad(sim_result, time_us, tile_size)
+        frame = _overlay_reasoning_on_frame(frame, cached_reasoning, display_time_s)
+        frame = _overlay_nav_text(frame, cached_nav_text)
+        output_frames.append(frame)
+
+    _write_video(output_frames, output_path, fps=10)

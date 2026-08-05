@@ -409,6 +409,9 @@ class DriverResponseAtTime:
     command_name: str | None = None
     # Optional reasoning text from driver debug info.
     reasoning_text: str | None = None
+    # Navigation instruction given to the model (e.g. "Turn left in 30m"). None
+    # when the driver was not navigation-conditioned.
+    nav_text: str | None = None
 
     @staticmethod
     def _extract_debug_extra(
@@ -528,6 +531,7 @@ class DriverResponseAtTime:
         safety_monitor_safe = None
         command_name = None
         reasoning_text = None
+        nav_text = None
         extra = DriverResponseAtTime._extract_debug_extra(
             driver_response,
             parse_unstructured_debug_info=parse_unstructured_debug_info,
@@ -539,6 +543,8 @@ class DriverResponseAtTime:
                 command_name = extra["command_name"]
             if "reasoning_text" in extra:
                 reasoning_text = extra["reasoning_text"]
+            if "nav_text" in extra:
+                nav_text = extra["nav_text"]
 
         # Selected trajectory
         selected_traj = RenderableTrajectory.from_grpc_with_aabb(
@@ -573,6 +579,7 @@ class DriverResponseAtTime:
             safety_monitor_safe=safety_monitor_safe,
             command_name=command_name,
             reasoning_text=reasoning_text,
+            nav_text=nav_text,
         )
 
 

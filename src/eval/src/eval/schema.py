@@ -62,6 +62,12 @@ class VideoLayout(StrEnum):
     # Reasoning overlay view: first-person camera with reasoning text overlay
     #   + trajectory chart on right.
     REASONING_OVERLAY = "reasoning_overlay"
+    # All four driver cameras tiled 2x2, with reasoning text and the navigation
+    # instruction the model was given.
+    QUAD_CAM = "quad_cam"
+    # Default debug view (BEV map, metrics) with all four driver cameras in a
+    # 2x2 grid instead of a single camera pane.
+    DEFAULT_QUAD = "default_quad"
 
 
 @dataclass

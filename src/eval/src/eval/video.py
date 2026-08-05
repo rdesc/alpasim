@@ -3,6 +3,7 @@
 
 import logging
 import os
+import textwrap
 import traceback
 
 import matplotlib as mpl
@@ -17,10 +18,20 @@ from tqdm import tqdm
 
 from eval.aggregation import processing
 from eval.aggregation.processing import ProcessedMetricDFs
-from eval.data import CameraProjector, ScenarioEvalInput, SimulationResult
+from eval.data import (
+    Camera,
+    CameraProjector,
+    DriverResponseAtTime,
+    ScenarioEvalInput,
+    SimulationResult,
+)
 from eval.schema import EvalConfig, MapElements, VideoLayout
 from eval.video_data import ShapelyMap
-from eval.video_reasoning_overlay_utils import render_reasoning_overlay_style_video
+from eval.video_reasoning_overlay_utils import (
+    QUAD_CAM_ORDER,
+    render_quad_cam_video,
+    render_reasoning_overlay_style_video,
+)
 
 logger = logging.getLogger("alpasim.eval.video")
 
@@ -86,14 +97,23 @@ def render_and_save_video(
                 output_path,
                 cfg,
             )
-        elif video_layout == VideoLayout.DEFAULT:
-            # Use the default debug view rendering (bev map, camera, metrics)
+        elif video_layout == VideoLayout.QUAD_CAM:
+            # All four driver cameras tiled 2x2, with reasoning and nav text.
+            render_quad_cam_video(
+                simulation_result,
+                output_path,
+                cfg,
+            )
+        elif video_layout in (VideoLayout.DEFAULT, VideoLayout.DEFAULT_QUAD):
+            # Default debug view (bev map, camera, metrics). DEFAULT_QUAD shows
+            # all four driver cameras instead of only the primary one.
             anim, fps = create_video_animation(
                 processed_metric_dfs,
                 simulation_result,
                 cfg,
                 clipgt_id=clipgt_id,
                 rollout_id=rollout_id,
+                quad_cameras=video_layout == VideoLayout.DEFAULT_QUAD,
             )
             anim.save(
                 output_path,
@@ -160,34 +180,97 @@ def render_video_from_eval_result(
         return False
 
 
-def _setup_fig() -> tuple[plt.Figure, dict[str, plt.Axes]]:
-    fig = plt.figure(figsize=(9, 10))
+def _setup_fig(quad_cameras: bool = False) -> tuple[plt.Figure, dict[str, plt.Axes]]:
+    """Build the figure for the default layouts.
+
+    The BEV map and metrics table sit on top. Below them is either a single
+    camera pane ("image") or, when quad_cameras is set, a 2x2 grid whose
+    top-left pane is "image" so the plan overlay keeps projecting into the
+    primary camera.
+    """
+    fig = plt.figure(figsize=(9, 11.5) if quad_cameras else (9, 10))
     fig.subplots_adjust(
         left=0.01, right=0.99, bottom=0.01, top=0.97, wspace=0.03, hspace=0.03
     )
 
-    gs = gridspec.GridSpec(
-        nrows=2,
-        ncols=2,
-        figure=fig,
-        width_ratios=[1, 0.5],
-        height_ratios=[1, 1],
-    )
     axs = {}
-    axs["map"] = fig.add_subplot(gs[0, 0])
-    axs["table"] = fig.add_subplot(gs[0, 1])
-    axs["image"] = fig.add_subplot(gs[1, 0:2])
-    # axs["plans"] = fig.add_subplot(gs[1, 2])
-    axs["map"].set_xticks([])
-    axs["map"].set_yticks([])
-    axs["table"].set_xticks([])
-    axs["table"].set_yticks([])
-    axs["image"].set_xticks([])
-    axs["image"].set_yticks([])
+    if quad_cameras:
+        # Camera region is sized to the panes' own aspect so they do not letterbox.
+        outer = gridspec.GridSpec(
+            nrows=3, ncols=1, figure=fig, height_ratios=[1, 0.92, 0.3], hspace=0.06
+        )
+        top = gridspec.GridSpecFromSubplotSpec(
+            1, 2, subplot_spec=outer[0], width_ratios=[1, 0.5], wspace=0.03
+        )
+        middle = gridspec.GridSpecFromSubplotSpec(
+            2, 2, subplot_spec=outer[1], wspace=0.02, hspace=0.02
+        )
+        axs["map"] = fig.add_subplot(top[0, 0])
+        axs["table"] = fig.add_subplot(top[0, 1])
+        axs["image"] = fig.add_subplot(middle[0, 0])
+        axs["image_1"] = fig.add_subplot(middle[0, 1])
+        axs["image_2"] = fig.add_subplot(middle[1, 0])
+        axs["image_3"] = fig.add_subplot(middle[1, 1])
+        axs["reasoning"] = fig.add_subplot(outer[2])
+        axs["reasoning"].set_frame_on(False)
+    else:
+        gs = gridspec.GridSpec(
+            nrows=2,
+            ncols=2,
+            figure=fig,
+            width_ratios=[1, 0.5],
+            height_ratios=[1, 1],
+        )
+        axs["map"] = fig.add_subplot(gs[0, 0])
+        axs["table"] = fig.add_subplot(gs[0, 1])
+        axs["image"] = fig.add_subplot(gs[1, 0:2])
+
+    for ax in axs.values():
+        ax.set_xticks([])
+        ax.set_yticks([])
 
     axs["map"].set_aspect("equal")
-    # axs["plans"].set_aspect("equal")
     return fig, axs
+
+
+def _label_camera_pane(ax: plt.Axes, camera_id: str) -> None:
+    """Name a camera pane in its bottom-left corner."""
+    ax.text(
+        0.02,
+        0.02,
+        camera_id,
+        transform=ax.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=7,
+        color="white",
+        bbox=dict(boxstyle="round,pad=0.2", facecolor="black", alpha=0.7),
+    )
+
+
+def _format_reasoning_panel(
+    driver_response: DriverResponseAtTime | None,
+) -> str:
+    """Build the nav + chain-of-thought caption shown under the camera grid."""
+    nav = driver_response.nav_text if driver_response else None
+    reasoning = driver_response.reasoning_text if driver_response else None
+    nav_line = f"NAV: {nav}" if nav else "NAV: none"
+    if not reasoning:
+        return nav_line
+    return f"{nav_line}\n{textwrap.fill(reasoning, width=110)}"
+
+
+def _lock_axis_to_image(ax: plt.Axes, image_artist: plt.Artist | None) -> None:
+    """Pin an axis to its image's pixel extent so matplotlib does not rescale it."""
+    if image_artist is None:
+        return
+    array = image_artist.get_array()
+    if array is None:
+        return
+    h, w = array.shape[:2]
+    ax.set_xlim(0, w)
+    ax.set_ylim(h, 0)
+    ax.set_autoscale_on(False)
 
 
 def _list_in_dict_in_dict_to_list(
@@ -410,6 +493,7 @@ def create_video_animation(
     cfg: EvalConfig,
     clipgt_id: str = "unknown",
     rollout_id: str = "unknown",
+    quad_cameras: bool = False,
 ) -> tuple[animation.FuncAnimation, float]:
     """
     Create a video animation for a simulation result.
@@ -420,6 +504,8 @@ def create_video_animation(
         cfg: Evaluation configuration.
         clipgt_id: Clip/ground truth identifier (for table display).
         rollout_id: Rollout identifier (for table display).
+        quad_cameras: Show all four driver cameras in a 2x2 grid instead of
+            only the primary camera. The plan overlay stays on the primary one.
 
     Returns:
         Tuple of (animation, fps).
@@ -429,7 +515,7 @@ def create_video_animation(
     shapely_map = ShapelyMap.from_vec_map(sim_result.vec_map)
     should_render_table = processed_metrics_dfs.df_wide_avg_t.shape[0] > 0
 
-    fig, axs = _setup_fig()
+    fig, axs = _setup_fig(quad_cameras=quad_cameras)
 
     first_image = camera.image_at_time(timestamps_us[0])
     img_w = first_image.size[0] if first_image else None
@@ -439,6 +525,27 @@ def create_video_animation(
         axs["image"].set_xlim(0, img_w)
         axs["image"].set_ylim(img_h, 0)
         axs["image"].set_autoscale_on(False)
+
+    # Secondary cameras fill the rest of the 2x2 grid. Each keeps its own pixel
+    # coordinates, so no rescaling of the primary camera's overlay is needed.
+    secondary_cameras: list[tuple[Camera, plt.Axes]] = []
+    if quad_cameras:
+        _label_camera_pane(axs["image"], cfg.video.camera_id_to_render)
+        other_ids = [
+            cam_id
+            for cam_id in QUAD_CAM_ORDER
+            if cam_id != cfg.video.camera_id_to_render
+        ]
+        for idx, cam_id in enumerate(other_ids, start=1):
+            ax = axs[f"image_{idx}"]
+            secondary = sim_result.cameras.camera_by_logical_id.get(cam_id)
+            if secondary is None:
+                logger.warning("Camera %s not in rollout; leaving pane blank.", cam_id)
+                ax.set_visible(False)
+                continue
+            secondary.render_image_at_time(timestamps_us[0], ax)
+            _label_camera_pane(ax, cam_id)
+            secondary_cameras.append((secondary, ax))
 
     overlay_enabled = cfg.video.overlay_plans_on_camera
     camera_projector: CameraProjector | None = None
@@ -524,6 +631,21 @@ def create_video_animation(
         bbox=dict(boxstyle="round,pad=0.3", facecolor="black", alpha=0.7),
         visible=initial_command is not None,
     )
+
+    reasoning_text_artist = None
+    if quad_cameras:
+        axs["reasoning"].set_axis_off()
+        reasoning_text_artist = axs["reasoning"].text(
+            0.0,
+            1.0,
+            _format_reasoning_panel(initial_driver_response),
+            transform=axs["reasoning"].transAxes,
+            ha="left",
+            va="top",
+            fontsize=7,
+            family="monospace",
+            wrap=True,
+        )
 
     ego_transform = get_ego_transform(
         sim_result=sim_result,
@@ -754,14 +876,26 @@ def create_video_animation(
             all_artists.append(table)
         all_artists.append(text_artist)
         all_artists.append(command_text_artist)
+
+        for secondary, ax in secondary_cameras:
+            secondary_artist = secondary.render_image_at_time(time, ax)
+            if secondary_artist is None:
+                continue
+            all_artists.append(secondary_artist)
+            _lock_axis_to_image(ax, secondary_artist)
+
+        if reasoning_text_artist is not None:
+            reasoning_text_artist.set_text(
+                _format_reasoning_panel(
+                    sim_result.driver_responses.get_driver_response_for_time(
+                        time, which_time="now", fallback="previous"
+                    )
+                )
+            )
+            all_artists.append(reasoning_text_artist)
+
         # Keep camera axis locked to image extent
-        if camera_artist is not None:
-            array = camera_artist.get_array()
-            if array is not None:
-                h, w = array.shape[:2]
-                axs["image"].set_xlim(0, w)
-                axs["image"].set_ylim(h, 0)
-                axs["image"].set_autoscale_on(False)
+        _lock_axis_to_image(axs["image"], camera_artist)
         return all_artists
 
     timestamps_to_render_us = timestamps_us[:: cfg.video.render_every_nth_frame]
