@@ -44,6 +44,7 @@ class Alpamayo15Model(AlpamayoBaseModel):
             camera_ids=camera_ids,
             context_length=context_length or cls.DEFAULT_CONTEXT_LENGTH,
             use_classifier_free_guidance_nav=model_cfg.use_classifier_free_guidance_nav,
+            skip_cot=model_cfg.skip_cot,
         )
 
     def __init__(
@@ -56,6 +57,7 @@ class Alpamayo15Model(AlpamayoBaseModel):
         top_p: float = 0.98,
         temperature: float = 0.6,
         use_classifier_free_guidance_nav: bool = False,
+        skip_cot: bool = False,
     ):
         """Initialize Alpamayo 1.5 model.
 
@@ -69,7 +71,14 @@ class Alpamayo15Model(AlpamayoBaseModel):
             temperature: Temperature for VLM sampling.
             use_classifier_free_guidance_nav: If True, use classifier-free guidance navigation
                 sampling.  Requires roughly 60 GB VRAM (vs ~40 GB standard).
+            skip_cot: If True, inject an empty Chain-of-Cognition rather than
+                decoding one, skipping the autoregressive reasoning rollout.
         """
+        if use_classifier_free_guidance_nav and skip_cot:
+            raise ValueError(
+                "use_classifier_free_guidance_nav and skip_cot are mutually "
+                "exclusive: CFG nav needs the reasoning rollout that skip_cot removes."
+            )
         logger.info("Loading Alpamayo 1.5 checkpoint from %s", checkpoint_path)
         logger.info("Using Alpamayo 1.5 attn_implementation=%s", _ATTN_IMPLEMENTATION)
 
@@ -81,6 +90,7 @@ class Alpamayo15Model(AlpamayoBaseModel):
         processor = helper.get_processor(model.tokenizer)
 
         self._use_classifier_free_guidance_nav = use_classifier_free_guidance_nav
+        self._skip_cot = skip_cot
 
         self._init_common(
             model=model,
@@ -97,8 +107,14 @@ class Alpamayo15Model(AlpamayoBaseModel):
         if use_classifier_free_guidance_nav:
             logger.info("CFG nav sampling enabled (requires ~60 GB VRAM)")
 
-    def _create_chat_message(self, image_frames: torch.Tensor) -> list:
-        """Create chat message with camera indices for Alpamayo 1.5."""
+    def _create_chat_message(
+        self, image_frames: torch.Tensor, nav_text: str | None
+    ) -> list:
+        """Create chat message with camera indices for Alpamayo 1.5.
+
+        When nav_text is provided it is embedded as a <|route_start|>...<|route_end|>
+        span, which conditions the trajectory prediction on the instruction.
+        """
         # Sort camera IDs by index (same order used in _preprocess_images)
         sorted_camera_ids = sorted(
             self._camera_ids, key=lambda cam_id: CAMERA_NAME_TO_INDEX[cam_id]
@@ -107,18 +123,32 @@ class Alpamayo15Model(AlpamayoBaseModel):
             [CAMERA_NAME_TO_INDEX[cam_id] for cam_id in sorted_camera_ids]
         )
 
-        return self._helper.create_message(image_frames.flatten(0, 1), camera_indices)
+        return self._helper.create_message(
+            image_frames.flatten(0, 1), camera_indices, nav_text=nav_text
+        )
 
     def _run_inference(
         self, model_inputs: dict[str, Any]
     ) -> tuple[torch.Tensor, torch.Tensor, dict]:
-        """Run inference, optionally using CFG nav sampling."""
+        """Run inference, optionally using CFG nav or skipping the CoC rollout."""
         if self._use_classifier_free_guidance_nav:
             return self._model.sample_trajectories_from_data_with_vlm_rollout_cfg_nav(
                 data=model_inputs,
                 top_p=self._top_p,
                 temperature=self._temperature,
                 num_traj_samples=self._num_traj_samples,
+                return_extra=True,
+            )
+        if self._skip_cot:
+            # An empty coc_text makes the rollout inject <|cot_end|><|traj_future_start|>
+            # and cap VLM generation at a single token, so the trajectory is decoded
+            # without the autoregressive reasoning that dominates latency.
+            return self._model.sample_trajectories_from_data_with_vlm_rollout(
+                data=model_inputs,
+                top_p=self._top_p,
+                temperature=self._temperature,
+                num_traj_samples=self._num_traj_samples,
+                coc_text="",
                 return_extra=True,
             )
         return super()._run_inference(model_inputs)

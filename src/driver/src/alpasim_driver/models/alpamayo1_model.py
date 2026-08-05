@@ -81,6 +81,17 @@ class Alpamayo1Model(AlpamayoBaseModel):
             temperature=temperature,
         )
 
-    def _create_chat_message(self, image_frames: torch.Tensor) -> list:
-        """Create chat message using Alpamayo 1's helper (no camera indices)."""
+    def _create_chat_message(
+        self, image_frames: torch.Tensor, nav_text: str | None
+    ) -> list:
+        """Create chat message using Alpamayo 1's helper (no camera indices).
+
+        Alpamayo 1 has no route-token support upstream, so nav_text is ignored.
+        """
+        if nav_text is not None:
+            logger.warning(
+                "Alpamayo 1 does not support navigation text; ignoring nav_text=%r. "
+                "Set driver.route.use_nav_text=false.",
+                nav_text,
+            )
         return self._helper.create_message(image_frames.flatten(0, 1))

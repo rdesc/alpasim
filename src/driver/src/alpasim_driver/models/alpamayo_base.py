@@ -308,10 +308,13 @@ class AlpamayoBaseModel(BaseTrajectoryModel):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    def _create_chat_message(self, image_frames: torch.Tensor) -> list:
+    def _create_chat_message(
+        self, image_frames: torch.Tensor, nav_text: str | None
+    ) -> list:
         """Build the chat-message list from preprocessed image frames.
 
-        Alpamayo 1 passes flattened frames; Alpamayo 1.5 additionally passes camera indices.
+        Alpamayo 1 passes flattened frames; Alpamayo 1.5 additionally passes camera
+        indices and, when provided, a language navigation instruction.
         """
         ...
 
@@ -463,7 +466,7 @@ class AlpamayoBaseModel(BaseTrajectoryModel):
 
         # Preprocess images and create chat message (model-specific hook).
         image_frames = self._preprocess_images(camera_images)
-        messages = self._create_chat_message(image_frames)
+        messages = self._create_chat_message(image_frames, prediction_input.nav_text)
 
         # Apply chat template via the processor.
         inputs = self._processor.apply_chat_template(

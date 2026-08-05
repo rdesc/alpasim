@@ -60,6 +60,7 @@ def _make_prediction_input(
     return PredictionInput(
         camera_images={CAMERA_ID: frames},
         command=command,
+        nav_text=None,
         speed=10.0,
         acceleration=0.0,
         ego_pose_history=[],

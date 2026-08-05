@@ -57,6 +57,7 @@ def _make_prediction_input(
     return PredictionInput(
         camera_images=camera_images,
         command=command,
+        nav_text=None,
         speed=speed,
         acceleration=acceleration,
         ego_pose_history=[],
@@ -275,6 +276,7 @@ class TestPredictBatch:
         inp = PredictionInput(
             camera_images=camera_images,
             command=DriveCommand.STRAIGHT,
+            nav_text=None,
             speed=10.0,
             acceleration=0.0,
             ego_pose_history=[],

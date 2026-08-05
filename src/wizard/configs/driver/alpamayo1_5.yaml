@@ -22,6 +22,9 @@ model:
   # Enable classifier-free guidance navigation sampling (~60 GB VRAM).
   # Set to true only when sufficient GPU memory is available.
   use_classifier_free_guidance_nav: false
+  # Skip the autoregressive Chain-of-Cognition rollout (inject an empty one) so the
+  # trajectory is decoded without the reasoning tokens that dominate per-step latency.
+  skip_cot: false
 
 # Server configuration
 host: "0.0.0.0"
@@ -41,6 +44,10 @@ inference:
 # Route configuration — A1.5 uses language-only navigation, not waypoint commands
 route:
   use_waypoint_commands: false
+  # Supply a language navigation instruction ("Turn left in 30m" / "Continue
+  # straight") derived from the route. A1.5 conditions its trajectory on it.
+  use_nav_text: false
+  command_distance_threshold: 3.0  # Lateral displacement threshold in meters
 
 # Output configuration
 output_dir: "/mnt/output/driver"

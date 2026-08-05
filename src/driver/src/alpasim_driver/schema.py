@@ -26,6 +26,10 @@ class ModelConfig:
     device: str = MISSING  # Device to run inference on (cuda/cpu)
     tokenizer_path: str | None = None  # Only required for VAM
     use_classifier_free_guidance_nav: bool = False  # A1.5 only
+    # A1.5 only. Inject an empty Chain-of-Cognition instead of decoding one, so the
+    # trajectory is produced without the autoregressive reasoning rollout that
+    # dominates per-step latency. Trades reasoning conditioning for speed.
+    skip_cot: bool = False
 
 
 @dataclass
@@ -45,6 +49,9 @@ class RouteConfig:
 
     default_command: int = 2  # Default command: 0=right, 1=left, 2=straight
     use_waypoint_commands: bool = True  # Whether to interpret waypoints as commands
+    # Whether to derive a language navigation instruction ("Turn left in 30m") from
+    # the route. Only Alpamayo 1.5 consumes it; other models ignore it.
+    use_nav_text: bool = False
     command_distance_threshold: float = (
         2.0  # Lateral displacement threshold for command determination (meters)
     )

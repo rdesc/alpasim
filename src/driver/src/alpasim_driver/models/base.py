@@ -50,6 +50,7 @@ class PredictionInput:
 
     camera_images: CameraImages
     command: DriveCommand
+    nav_text: str | None  # Language navigation instruction, e.g. "Turn left in 30m"
     speed: float  # m/s
     acceleration: float  # m/s²
     ego_pose_history: list[Any]  # list[PoseAtTime]

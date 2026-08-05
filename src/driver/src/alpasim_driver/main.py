@@ -68,7 +68,7 @@ from .models.base import (
     PredictionInput,
 )
 from .models.manual_model import ManualModel
-from .navigation import determine_command_from_route
+from .navigation import determine_command_from_route, nav_text_from_route
 from .rectification import (
     FthetaToPinholeRectifier,
     build_ftheta_rectifier_for_resolution,
@@ -134,6 +134,7 @@ class DriveJob:
     session_id: str
     session: "Session"
     command: DriveCommand
+    nav_text: str | None
     pose: PoseAtTime | None
     timestamp_us: int
     result: asyncio.Future[DriveResponse]
@@ -156,6 +157,7 @@ class Session:
     poses: list[PoseAtTime] = field(default_factory=list)
     dynamic_states: list[tuple[int, DynamicState]] = field(default_factory=list)
     current_command: DriveCommand = DriveCommand.STRAIGHT  # Default to straight
+    current_nav_text: str | None = None  # None means "no turn announced"
 
     @staticmethod
     def create(
@@ -342,10 +344,11 @@ class Session:
         self,
         route: Route,
         use_waypoint_commands: bool,
+        use_nav_text: bool = False,
         command_distance_threshold: float | None = None,
         min_lookahead_distance: float | None = None,
     ) -> None:
-        """Derive command from waypoints using route geometry.
+        """Derive command and/or navigation text from route geometry.
 
         Note: this is called for RouteRequest and assumed to be in the
         true rig frame.
@@ -353,35 +356,51 @@ class Session:
         Args:
             route: Route containing waypoints in the rig frame.
             use_waypoint_commands: Whether to derive commands from waypoints.
+            use_nav_text: Whether to derive a language navigation instruction
+                from waypoints.
             command_distance_threshold: Lateral distance threshold (meters) for
                 determining turn commands. Waypoints beyond this threshold trigger
                 LEFT/RIGHT commands.
             min_lookahead_distance: Minimum forward distance (meters) to consider
                 a waypoint as the target for command derivation.
         """
-        if not use_waypoint_commands or len(route.waypoints) < 1:
+        if not (use_waypoint_commands or use_nav_text) or len(route.waypoints) < 1:
             return
 
         if len(self.poses) == 0:
             return
 
-        if command_distance_threshold is None or min_lookahead_distance is None:
-            raise ValueError(
-                "command_distance_threshold and min_lookahead_distance must be provided "
-                "when use_waypoint_commands is True"
+        if use_waypoint_commands:
+            if command_distance_threshold is None or min_lookahead_distance is None:
+                raise ValueError(
+                    "command_distance_threshold and min_lookahead_distance must be "
+                    "provided when use_waypoint_commands is True"
+                )
+            self.current_command = determine_command_from_route(
+                route=route,
+                command_distance_threshold=command_distance_threshold,
+                min_lookahead_distance=min_lookahead_distance,
+            )
+            logger.debug(
+                "Command updated: %s",
+                self.current_command.name,
             )
 
-        # Use the navigation module to determine command
-        self.current_command = determine_command_from_route(
-            route=route,
-            command_distance_threshold=command_distance_threshold,
-            min_lookahead_distance=min_lookahead_distance,
-        )
-
-        logger.debug(
-            "Command updated: %s",
-            self.current_command.name,
-        )
+        if use_nav_text:
+            if command_distance_threshold is None or min_lookahead_distance is None:
+                raise ValueError(
+                    "command_distance_threshold and min_lookahead_distance must be "
+                    "provided when use_nav_text is True"
+                )
+            self.current_nav_text = nav_text_from_route(
+                route=route,
+                command_distance_threshold=command_distance_threshold,
+                min_lookahead_distance=min_lookahead_distance,
+            )
+            logger.debug(
+                "Nav text updated: %s",
+                self.current_nav_text,
+            )
 
 
 def async_log_call(func: Callable) -> Callable:
@@ -705,6 +724,7 @@ class EgoDriverService(EgodriverServiceServicer):
                 PredictionInput(
                     camera_images=self._prepare_camera_images(job.session),
                     command=job.command,
+                    nav_text=job.nav_text,
                     speed=speed,
                     acceleration=acceleration,
                     ego_pose_history=job.session.poses,
@@ -812,9 +832,10 @@ class EgoDriverService(EgodriverServiceServicer):
         if self._cfg.route is not None:
             self._sessions[request.session_uuid].update_command_from_route(
                 request.route,
-                self._cfg.route.use_waypoint_commands,
-                self._cfg.route.command_distance_threshold,
-                self._cfg.route.min_lookahead_distance,
+                use_waypoint_commands=self._cfg.route.use_waypoint_commands,
+                use_nav_text=self._cfg.route.use_nav_text,
+                command_distance_threshold=self._cfg.route.command_distance_threshold,
+                min_lookahead_distance=self._cfg.route.min_lookahead_distance,
             )
         else:
             self._sessions[request.session_uuid].update_command_from_route(
@@ -880,6 +901,7 @@ class EgoDriverService(EgodriverServiceServicer):
             session_id=request.session_uuid,
             session=session,
             command=session.current_command,
+            nav_text=session.current_nav_text,
             pose=pose_snapshot,
             timestamp_us=request.time_now_us,
             result=future,
@@ -903,6 +925,7 @@ class EgoDriverService(EgodriverServiceServicer):
         debug_data = {
             "command": int(session.current_command),
             "command_name": session.current_command.name,
+            "nav_text": job.nav_text,
             "num_frames": {
                 cam_id: cache.frame_count()
                 for cam_id, cache in session.frame_caches.items()

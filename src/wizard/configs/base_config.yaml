@@ -163,6 +163,9 @@ services:
       - "${repo-relative:'src'}:/repo/src"
       - "${repo-relative:'plugins'}:/repo/plugins"
       - "${defines.hf_cache}:/root/.cache/huggingface"
+      # TEMP (CoC ablation): overlay the coc_text-capable alpamayo1_5 fork over the
+      # pinned NVLabs build so driver.model.skip_cot works. Revert before committing.
+      - "/mnt/efs/users/rod/repos/alpamayo1.5/src/alpamayo1_5:/repo/.venv/lib/python3.12/site-packages/alpamayo1_5"
     command:
       - "uv run -m alpasim_driver.main"
       - "--config-path=/mnt/output"
