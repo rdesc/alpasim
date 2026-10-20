@@ -23,13 +23,17 @@ say "=== train launcher started (pid $$) ==="
 cd "$REPO" || { say "ABORT: no repo"; exit 1; }
 
 # --- 1. wait for the train scene download ---------------------------------
+# NOTE: do not gate on `pgrep -f warm_cache_*.py`. pgrep -f matches full command
+# lines, so any shell whose command line mentions the script (including the one
+# that launched it) is a false positive and the gate never opens. Gate on the
+# completion sentinel the download writes instead.
 for i in $(seq 1 240); do   # up to 2h
-  pgrep -f warm_cache_train.py >/dev/null || break
-  [[ $((i % 20)) -eq 0 ]] && say "download still running ($(ls "$CACHE/all-usdzs" | wc -l) artifacts cached)"
+  grep -q "sceneset ready" "$OUT/warm_cache_mix200.log" 2>/dev/null && break
+  [[ $((i % 20)) -eq 0 ]] && say "waiting on download ($(ls "$CACHE/all-usdzs" | wc -l) artifacts cached)"
   sleep 30
 done
-if ! grep -q "sceneset ready" "$OUT/warm_cache_train.log" 2>/dev/null; then
-  say "ABORT: train scene download did not complete -- see warm_cache_train.log"
+if ! grep -q "sceneset ready" "$OUT/warm_cache_mix200.log" 2>/dev/null; then
+  say "ABORT: train scene download did not complete -- see warm_cache_mix200.log"
   exit 1
 fi
 say "train scene cache ready ($(ls "$CACHE/all-usdzs" | wc -l) artifacts total)"
@@ -46,12 +50,14 @@ if [[ "$busy" -ne 0 ]]; then say "ABORT: GPUs still busy after 6h"; exit 1; fi
 
 # --- 3. launch -------------------------------------------------------------
 source setup_local_env.sh >> "$LOG" 2>&1
-RUN_DIR="$OUT/eval_alpamayo1_5_train_sample400_$(hostname -s)_$(date +%m%d_%H%M)"
+RESULTS="$OUT/alpamayo_eval_results"
+mkdir -p "$RESULTS"
+RUN_DIR="$RESULTS/$(date +%Y-%m-%d)_train_mix200"
 say "LAUNCHING: $RUN_DIR"
 
 uv run --no-sync alpasim_wizard \
   deploy=local topology=8gpu_12rollouts driver=alpamayo1_5 \
-  +nurec_scenes=train_sample400 \
+  +nurec_scenes=train_mix200 \
   runtime.simulation_config.n_rollouts=1 \
   runtime.simulation_config.route_start_offset_m=40.0 \
   eval.allow_aggregation_with_failed_rollouts=true \
@@ -62,4 +68,6 @@ uv run --no-sync alpasim_wizard \
   "defines.sensordata=$CACHE" \
   "scenes.scene_cache=$CACHE" \
   wizard.log_dir="$RUN_DIR" >> "$OUT/train_run.log" 2>&1
-say "wizard exited rc=$? ; results: $RUN_DIR/aggregate/"
+rc=$?
+cp "$OUT/train_run.log" "$RUN_DIR/wizard.log" 2>/dev/null
+say "wizard exited rc=$rc ; results: $RUN_DIR/aggregate/"
