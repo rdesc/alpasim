@@ -828,11 +828,19 @@ class DriverResponses:
         return overlay_artists
 
     def get_driver_response_for_time(
-        self, time: int, which_time: Literal["now", "query"] = "now"
+        self,
+        time: int,
+        which_time: Literal["now", "query"] = "now",
+        *,
+        fallback: Literal["exact", "previous"] = "exact",
     ) -> DriverResponseAtTime | None:
         """Note that this returns the driver response for the query time.
 
         I.e. not the time when the response was predicted.
+
+        By default only an exact timestamp match is returned. Video renderers
+        opt into ``fallback="previous"`` to show the most recent still-active
+        response at a frame that falls between policy timestamps.
         """
         timestamps_to_search = (
             self.timestamps_us if which_time == "now" else self.query_times_us
@@ -840,6 +848,15 @@ class DriverResponses:
         # Empty list (e.g. session aborted before any response was recorded).
         if not timestamps_to_search:
             return None
+        if fallback == "previous":
+            # Off-cadence video frames can sit between policy-response
+            # timestamps. Use the most recent response at-or-before the frame,
+            # keeping its original local-frame trajectory rather than
+            # reanchoring it.
+            idx = np.searchsorted(timestamps_to_search, time, side="right") - 1
+            return self.per_timestep_driver_responses[idx] if idx >= 0 else None
+        if fallback != "exact":
+            raise ValueError(f"Unsupported driver-response fallback: {fallback}")
         idx = np.searchsorted(timestamps_to_search, time)
         if idx == len(timestamps_to_search):
             return None
