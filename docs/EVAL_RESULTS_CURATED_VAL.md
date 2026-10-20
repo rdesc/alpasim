@@ -23,7 +23,7 @@ reference bundle (all 8 reference subjects are 441 x 3). It is a first look.
 | scene pre-download helper | `/mnt/efs/users/rod/repos/alpasim/warm_cache.py` |
 | launcher log | `/mnt/efs/users/rod/repos/alpasim/launch_val.log` |
 | eval log | `/mnt/efs/users/rod/repos/alpasim/val_run.log` |
-| results | `/mnt/efs/users/rod/repos/alpasim/eval_alpamayo1_5_curated_val_*/aggregate/` |
+| results | `/mnt/efs/users/rod/repos/alpasim/alpamayo_eval_results/2026-10-20_curated_val/aggregate/` |
 
 Scene cache and venv are on **ephemeral NVMe** — intentional, both are caches.
 All results and logs go to EFS.
@@ -127,7 +127,8 @@ both detected and skipped.
 
 # RESULTS — val run complete (2026-10-20)
 
-Run: `eval_alpamayo1_5_curated_val_ip-10-225-141-207_1020_0346`
+Run: `alpamayo_eval_results/2026-10-20_curated_val/`
+(originally `eval_alpamayo1_5_curated_val_ip-10-225-141-207_1020_0346`)
 Started 03:46, finished ~16:0x. **441/441 scenes, 0 failed rollouts**,
 `n_clips: 441, n_rollouts/clip: 1`. Throughput 35.6 scenes/h (July projection
 was 36.3). Output 109 GB.
@@ -138,21 +139,25 @@ scenes that killed the July `public_2601` runs are excluded by construction, so
 
 ## Headline metrics
 
-| metric | value |
-|---|---|
-| avg_dist_between_incidents_at_fault | 1.03 |
-| avg_dist_between_incidents | 0.73 |
-| offroad_or_collision | 0.22 |
-| offroad_or_collision_at_fault | 0.15 |
-| collision_any | 0.11 |
-| collision_at_fault | 0.05 |
-| offroad | 0.10 |
-| wrong_lane | 0.28 |
-| left_corridor_laterally | 0.28 |
-| progress | 0.77 |
-| scene score (mean) | 0.5478 |
-| scenes passed | 251 / 441 (56.9%) |
-| driver drive RPC mean | 4.62 s (under 12-way concurrency) |
+Values below are **after** the lateral-corridor-exit fix (#215). Pre-fix values
+are in brackets where they differ; see "Scorer version" at the end.
+
+| metric | value | (pre-fix) |
+|---|---|---|
+| avg_dist_between_incidents_at_fault | 0.99 | (1.03) |
+| avg_dist_between_incidents | 0.71 | (0.73) |
+| offroad_or_collision | 0.22 | |
+| offroad_or_collision_at_fault | 0.16 | (0.15) |
+| collision_any | 0.11 | |
+| collision_at_fault | 0.05 | |
+| offroad | 0.11 | (0.10) |
+| wrong_lane | 0.28 | |
+| left_corridor_laterally | **0.26** | (0.28) |
+| progress | 0.77 | |
+| progress_clipped_rel | 0.77 | |
+| scene score (mean) | **0.5614** | (0.5455) |
+| scenes passed | **257 / 441 (58.3%)** | (250 / 441) |
+| driver drive RPC mean | 4.62 s (under 12-way concurrency) | |
 
 ## Drive-IRT vs the reference bundle
 
@@ -165,6 +170,13 @@ scenes that killed the July `public_2601` runs are excluded by construction, so
 | 3 | vavam-linear | 1814 | 22.4 | 0.3144 | 0.347 |
 | 4-9 | alternative_* / vavam-nonlinear | 480-1455 | | | |
 
+**This fit uses pre-fix scores on purpose.** The bundled reference summaries
+were produced before #215 and we only have their `results-summary.json`, not
+their ASLs, so they cannot be rescored. Comparing our post-fix scores against
+their pre-fix scores would credit us with corridor false positives removed from
+our side only. Keep the comparison pre-fix, or rescore everything once upstream
+publishes updated references.
+
 A1.5 ranks 1st with interval 1-1. Note its *average scene score* is marginally
 **lower** than Alpamayo 1 (0.5478 vs 0.5498) — it ranks higher because IRT
 weights scenes by difficulty, i.e. A1.5 passes harder scenes. Its std is higher
@@ -175,7 +187,8 @@ weights scenes by difficulty, i.e. A1.5 passes harder scenes. Its std is higher
 | run | suite | scenes | rollouts | adbi_at_fault |
 |---|---|---:|---:|---:|
 | NVIDIA model card | public_2601 | 913 | 3 | 1.37 +/- 0.10 |
-| ours (this run) | curated_val | 441 | 1 | 1.03 |
+| ours (this run, post-fix) | curated_val | 441 | 1 | 0.99 |
+| ours (this run, pre-fix) | curated_val | 441 | 1 | 1.03 |
 | ours (July) | public_2601 | 905 | 1 | 0.93 |
 
 Different suite and rollout count, so 1.37 is not a target this run should be
@@ -281,3 +294,71 @@ release (159 from 26.01, 241 from 26.04, matching the 702/1059 split),
 
 Config identical to the val run except `+nurec_scenes=train_sample400` and
 `parse_unstructured_debug_info=true`.
+
+---
+
+# Scorer version — lateral corridor exit fix (#215)
+
+Upstream `e2e_challenge` landed `1b024f0` ("Bugfix: Lateral Corridor Exit",
+[#215](https://github.com/NVlabs/alpasim/issues/198)) on 2026-10-20, after this
+run was produced. `left_corridor_laterally` is a binary pass/fail criterion, so
+the fix moves the scene score directly.
+
+The old `_end_direction()` took the last two ground-truth coordinates. When the
+recording ends with the ego stopped — a red light, the end of a clip — those are
+duplicates or millimetre jitter, so the direction vector is noise. That vector
+is what separates longitudinal overshoot from lateral departure, so overshoot
+was being scored as a corridor exit. The fix walks backwards until it finds at
+least 1 m of displacement.
+
+Rescored from the existing ASLs with `alpasim-reeval` (scorer-only change, no
+re-simulation):
+
+| | before | after | delta |
+|---|---:|---:|---:|
+| scenes passed | 250 | **257** | +7 |
+| corridor tripped | 122 | 115 | -7 |
+| corridor-only failures | 121 | 114 | -7 |
+| offroad failures | 48 | 48 | 0 |
+| at-fault collision failures | 22 | 22 | 0 |
+| mean scene score | 0.5455 | **0.5614** | +0.0159 |
+
+So 7 scenes (1.6% of the suite) were false-positive corridor exits. The earlier
+finding survives: corridor exit alone still accounts for 114/441 = **26%** of
+scenes, and 60% of all failures.
+
+Aggregates preserved in the run directory:
+`aggregate_backup_pre_corridorfix/` (buggy scorer) and
+`aggregate_backup_norreasoning/` (before reasoning traces were parsed).
+
+**The fix's own tests cannot run on this branch.** 6 of 21 in
+`test_ground_truth_corridor.py` fail at setup with `Protocol message
+SessionMetadata has no "scene" field` — the new tests build a `scene` submessage
+the `e2e_challenge` proto does not have. The failures are identical on a clean
+upstream checkout, so this is pre-existing upstream breakage, not ours. They are
+exactly the `test_stopped_endpoint_scoring_*` cases covering what the fix
+addresses, so the fix is applied without executable regression coverage.
+
+# External agreement — OPTED (arXiv:2609.20756)
+
+That paper evaluates Alpamayo 1.5 on the same 441 `curated_val` scenes, giving
+an independent check on our harness.
+
+| metric | OPTED reported | ours (post-fix) |
+|---|---:|---:|
+| scene score (%) | 55.2 +/- 1.0 | 56.1 |
+| km / infraction | 0.92 +/- 0.05 | 0.99 |
+| collision at-fault (%) | 4.8 +/- 0.6 | 5.0 |
+| off-road (%) | 12.0 +/- 1.4 | 10.9 |
+| corridor (%) | 25.5 +/- 0.9 | 26.1 |
+| progress (%) | 76.8 +/- 0.8 | 77.5 |
+
+Every closed-loop metric lands within or essentially at their error bars;
+`km/infraction` is the loosest at roughly 1.4 sigma. Note their numbers predate
+#215, so the strictly matched comparison is against our pre-fix scene score of
+54.6 rather than 56.1.
+
+A LaTeX version of this table, structured after their Table I, is at
+`alpamayo15_curated_val_table.tex`. Its ADE and latency columns are left blank
+deliberately: we computed no open-loop ADE, and our 4.62 s driver RPC is
+wall-clock under 12-way concurrency, not per-step single-stream latency.

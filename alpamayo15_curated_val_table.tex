@@ -1,0 +1,86 @@
+% Closed-loop results table, structured after Table I of OPTED (arXiv:2609.20756).
+% Requires: \usepackage{booktabs}  (and \usepackage{multirow} if you add
+% \multirow latency cells spanning an architecture block, as OPTED does).
+%
+% The Alpamayo 1.5 (ours) row is measured on nurec_curated_val, 441 scenes,
+% 1 rollout per scene, stock upstream checkpoint. See notes under the table.
+
+\begin{table*}[t]
+\centering
+\caption{Closed-loop evaluation on the 441 held-out NuRec scenes~\cite{NVIDIA2025HF} with AlpaSim
+challenge metrics and further sub-metrics, open-loop ADE on NuRec and nuPlan, and inference latency
+per planning step. Bold marks the best value per architecture.}
+\label{tab:e2e_main_results}
+\small
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l cc @{\hskip 8pt} cccc @{\hskip 8pt} cc @{\hskip 8pt} c}
+\toprule
+& \multicolumn{2}{c}{Challenge metrics} & \multicolumn{4}{c}{Sub-metrics}
+& \multicolumn{2}{c}{ADE@3\,s (m)} & \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-7} \cmidrule(lr){8-9}
+& Scene & km\,/ & Coll.\ at-fault & Off-road & Corridor & Progress & NuRec & nuPlan & Latency \\
+Method & score (\%) $\uparrow$ & infr.\ $\uparrow$ & (\%) $\downarrow$ & (\%) $\downarrow$
+& (\%) $\downarrow$ & (\%) $\uparrow$ & (sim) $\downarrow$ & (real) $\downarrow$ & (ms) $\downarrow$\\
+\midrule
+% ---------------------------------------------------------------- your method
+\textit{Your architecture} Base & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD & \multirow{3}{*}{\TBD} \\
+\quad + \textit{baseline variant}  & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD & \\
+\quad + \textit{ours}              & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD & \TBD & \\
+\addlinespace
+% ------------------------------------------------------------------ reference
+Alpamayo 1.5~\cite{Wang2025ARXIV} (reported) & 55.2{\scriptsize\,$\pm$\,1.0} & 0.92{\scriptsize\,$\pm$\,0.05}
+& 4.8{\scriptsize\,$\pm$\,0.6} & 12.0{\scriptsize\,$\pm$\,1.4} & 25.5{\scriptsize\,$\pm$\,0.9}
+& 76.8{\scriptsize\,$\pm$\,0.8} & 0.57{\scriptsize\,$\pm$\,0.00} & 3.31{\scriptsize\,$\pm$\,0.01} & 940 \\
+Alpamayo 1.5 (ours)$^{\dagger}$ & 56.1 & 0.99 & 5.0 & 10.9 & 26.1 & 77.5 & -- & -- & -- \\
+\bottomrule
+\end{tabular}%
+}
+\vspace{1mm}
+\\{\footnotesize $^{\dagger}$Our reproduction: stock \texttt{nvidia/Alpamayo-1.5-10B}, AlpaSim
+\texttt{nurec\_curated\_val}, 441/441 scenes, \textbf{1 rollout per scene} (no std.\ reported);
+zero failed rollouts.}
+\vspace{-0.5cm}
+\end{table*}
+
+% =====================================================================
+% NOTES -- read before submitting
+% =====================================================================
+%
+% \TBD placeholder: \newcommand{\TBD}{--} (or \textcolor{red}{??} while drafting)
+%
+% WHERE OUR NUMBERS COME FROM (alpamayo_eval_results/2026-10-20_curated_val/)
+%   Scene score (%)   56.1   mean of results-summary.json rollouts[].score x100
+%   km / infr.        0.99   avg_dist_between_incidents_at_fault
+%   Coll. at-fault    5.0    collision_at_fault          (0.049887)
+%   Off-road          10.9   offroad                     (0.108844)
+%   Corridor          26.1   left_corridor_laterally     (0.260771)
+%   Progress          77.5   progress_clipped_rel        (0.774756)
+%
+% THREE COLUMNS LEFT BLANK, DELIBERATELY
+%   ADE (NuRec / nuPlan): our run did not compute open-loop ADE --
+%     min_ade@{0.5,1.0,2.5,5.0}s report N/A. These need a separate open-loop
+%     evaluation; do not copy the reported values into our row.
+%   Latency: our driver RPC averaged 4.62 s, but that is wall-clock under
+%     12 concurrent rollouts sharing 4 GPUs, NOT per-step single-stream
+%     latency. It is not comparable to the 940 ms column. Measure
+%     single-stream before filling this in.
+%
+% NO ERROR BARS ON OUR ROW
+%   Ours is 1 rollout per scene; the reference rows are 3. If you want
+%   +/- std, re-run with runtime.simulation_config.n_rollouts=3
+%   (~3x compute, roughly 36 h on one 8x A100 node at our measured
+%   35.6 scenes/h).
+%
+% AGREEMENT WITH THE REPORTED ROW
+%   Every closed-loop metric lands within, or essentially at, the reported
+%   error bars: scene score 56.1 vs 55.2+/-1.0, coll. at-fault 5.0 vs
+%   4.8+/-0.6, off-road 10.9 vs 12.0+/-1.4, corridor 26.1 vs 25.5+/-0.9,
+%   progress 77.5 vs 76.8+/-0.8. km/infr 0.99 vs 0.92+/-0.05 is the
+%   loosest. This is an independent reproduction on the same split.
+%
+% SCORER VERSION MATTERS
+%   These numbers use the lateral-corridor-exit fix (NVlabs/alpasim #215,
+%   commit 1b024f0, merged 2026-10-20). Before the fix our run scored 54.6%
+%   with 122 corridor failures; after, 56.1% with 115. If you compare
+%   against numbers produced before that commit, say so.
