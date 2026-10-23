@@ -171,6 +171,7 @@ class Session:
     poses: list[PoseAtTime] = field(default_factory=list)
     dynamic_states: list[tuple[int, DynamicState]] = field(default_factory=list)
     current_command: DriveCommand = DriveCommand.STRAIGHT  # Default to straight
+    route: Route | None = None  # Latest route, rig frame at its own timestamp
 
     @staticmethod
     def create(
@@ -723,6 +724,7 @@ class EgoDriverService(EgodriverServiceServicer):
                     speed=speed,
                     acceleration=acceleration,
                     ego_pose_history=job.session.poses,
+                    route=job.session.route,
                 )
             )
         return self._model.predict_batch(inputs)
@@ -824,6 +826,7 @@ class EgoDriverService(EgodriverServiceServicer):
         self, request: RouteRequest, context: grpc.aio.ServicerContext
     ) -> Empty:
         logger.debug("submit_route: waypoint count=%s", len(request.route.waypoints))
+        self._sessions[request.session_uuid].route = request.route
         if self._cfg.route is not None:
             self._sessions[request.session_uuid].update_command_from_route(
                 request.route,

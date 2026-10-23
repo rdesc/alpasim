@@ -53,6 +53,10 @@ class PredictionInput:
     speed: float  # m/s
     acceleration: float  # m/s²
     ego_pose_history: list[Any]  # list[PoseAtTime]
+    # Latest route submitted for this session, with waypoints in the rig frame
+    # at the route's own timestamp.  None until the first route arrives, and
+    # for scenarios that run without a route.
+    route: Any | None = None  # Route
 
 
 @dataclass

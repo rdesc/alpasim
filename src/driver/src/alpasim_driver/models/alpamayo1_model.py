@@ -81,6 +81,8 @@ class Alpamayo1Model(AlpamayoBaseModel):
             temperature=temperature,
         )
 
-    def _create_chat_message(self, image_frames: torch.Tensor) -> list:
+    def _create_chat_message(
+        self, image_frames: torch.Tensor, nav_text: str | None
+    ) -> list:
         """Create chat message using Alpamayo 1's helper (no camera indices)."""
         return self._helper.create_message(image_frames.flatten(0, 1))

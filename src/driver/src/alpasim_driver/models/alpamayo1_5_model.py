@@ -97,8 +97,10 @@ class Alpamayo15Model(AlpamayoBaseModel):
         if use_classifier_free_guidance_nav:
             logger.info("CFG nav sampling enabled (requires ~60 GB VRAM)")
 
-    def _create_chat_message(self, image_frames: torch.Tensor) -> list:
-        """Create chat message with camera indices for Alpamayo 1.5."""
+    def _create_chat_message(
+        self, image_frames: torch.Tensor, nav_text: str | None
+    ) -> list:
+        """Create chat message with camera indices and navigation text."""
         # Sort camera IDs by index (same order used in _preprocess_images)
         sorted_camera_ids = sorted(
             self._camera_ids, key=lambda cam_id: CAMERA_NAME_TO_INDEX[cam_id]
@@ -107,7 +109,9 @@ class Alpamayo15Model(AlpamayoBaseModel):
             [CAMERA_NAME_TO_INDEX[cam_id] for cam_id in sorted_camera_ids]
         )
 
-        return self._helper.create_message(image_frames.flatten(0, 1), camera_indices)
+        return self._helper.create_message(
+            image_frames.flatten(0, 1), camera_indices, nav_text=nav_text
+        )
 
     def _run_inference(
         self, model_inputs: dict[str, Any]

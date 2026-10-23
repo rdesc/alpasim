@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import torch
 from alpasim_grpc.v0.common_pb2 import PoseAtTime
+from alpasim_grpc.v0.egodriver_pb2 import Route
 from alpasim_utils.geometry import Trajectory
 
 from ..schema import ModelConfig
@@ -23,6 +24,7 @@ from .base import (
     ModelPrediction,
     PredictionInput,
 )
+from .nav_text import route_to_nav_text
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,55 @@ def so3_to_yaw_torch(rot: torch.Tensor) -> torch.Tensor:
         Yaw angles in radians as a torch tensor, shape (...).
     """
     return torch.atan2(rot[..., 1, 0], rot[..., 0, 0])
+
+
+def _trajectory_from_pose_messages(poses: list[PoseAtTime]) -> Trajectory:
+    """Rig poses in the local frame as a Trajectory, sorted by timestamp."""
+    pose_data = sorted([(p.timestamp_us, p.pose) for p in poses], key=lambda x: x[0])
+    return Trajectory(
+        np.array([t for t, _ in pose_data], dtype=np.uint64),
+        np.array([[p.vec.x, p.vec.y, p.vec.z] for _, p in pose_data], dtype=np.float32),
+        np.array(
+            [[p.quat.x, p.quat.y, p.quat.z, p.quat.w] for _, p in pose_data],
+            dtype=np.float32,
+        ),
+    )
+
+
+def route_in_rig_at_t0(
+    route: Route,
+    ego_pose_history: list[PoseAtTime],
+    t0_us: int,
+) -> np.ndarray:
+    """Re-express route waypoints in the rig frame at t0.
+
+    A route carries the rig frame of its own timestamp, which trails t0 (the
+    newest camera frame the model conditions on) whenever routes and camera
+    frames arrive on different schedules.  Hopping through the local frame takes
+    the ego motion in between back out.
+
+    Args:
+        route: Route with waypoints in the rig frame at ``route.timestamp_us``.
+            NaN waypoints, which pad a route shorter than the requested
+            lookahead, stay NaN.
+        ego_pose_history: Rig poses in the local frame (``pose_local_to_rig`` at
+            each ``timestamp_us``), spanning the route timestamp and t0.
+        t0_us: Timestamp of t0 in microseconds.
+
+    Returns:
+        Waypoints of shape ``(N, 3)`` in the rig frame at t0.
+    """
+    waypoints_in_rig_route = np.array(
+        [[w.x, w.y, w.z] for w in route.waypoints], dtype=np.float32
+    ).reshape(-1, 3)
+    trajectory = _trajectory_from_pose_messages(ego_pose_history)
+    rig_route_in_local = trajectory.interpolate_pose(int(route.timestamp_us))
+    rig_t0_in_local = trajectory.interpolate_pose(int(t0_us))
+    rig_route_in_rig_t0 = rig_t0_in_local.inverse().as_se3() @ rig_route_in_local.as_se3()
+    return (
+        waypoints_in_rig_route @ rig_route_in_rig_t0[:3, :3].T
+        + rig_route_in_rig_t0[:3, 3]
+    )
 
 
 def build_ego_history(
@@ -308,10 +359,13 @@ class AlpamayoBaseModel(BaseTrajectoryModel):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    def _create_chat_message(self, image_frames: torch.Tensor) -> list:
+    def _create_chat_message(
+        self, image_frames: torch.Tensor, nav_text: str | None
+    ) -> list:
         """Build the chat-message list from preprocessed image frames.
 
-        Alpamayo 1 passes flattened frames; Alpamayo 1.5 additionally passes camera indices.
+        Alpamayo 1 passes flattened frames; Alpamayo 1.5 additionally passes
+        camera indices and conditions on ``nav_text``.
         """
         ...
 
@@ -461,9 +515,25 @@ class AlpamayoBaseModel(BaseTrajectoryModel):
             self.HISTORY_TIME_STEP,
         )
 
+        # Alpamayo takes navigation intent as text, so the route reaches the
+        # model only through this string.  Without it the model has to guess
+        # which way to go at intersections.
+        nav_text = (
+            route_to_nav_text(
+                route_in_rig_at_t0(
+                    prediction_input.route,
+                    prediction_input.ego_pose_history,
+                    latest_timestamp,
+                )
+            )
+            if prediction_input.route is not None
+            else None
+        )
+        logger.info("%s nav_text=%r", self.__class__.__name__, nav_text)
+
         # Preprocess images and create chat message (model-specific hook).
         image_frames = self._preprocess_images(camera_images)
-        messages = self._create_chat_message(image_frames)
+        messages = self._create_chat_message(image_frames, nav_text)
 
         # Apply chat template via the processor.
         inputs = self._processor.apply_chat_template(
