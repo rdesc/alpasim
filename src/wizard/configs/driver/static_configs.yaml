@@ -1,0 +1,15 @@
+# @package _global_
+# Runtime configuration overrides for the static driver.
+
+runtime:
+  simulation_config:
+    # Undoes alpamayo_configs, which is pulled in above for its camera set.
+    # Camera frames reach the ASL only as driver_camera_image entries, so the
+    # driver must keep being queried while force-GT drives the ego -- otherwise
+    # the replay renders observations that are never recorded.
+    skip_driver_during_force_gt: false
+
+services:
+  driver:
+    # The static model runs no network.
+    gpus: null

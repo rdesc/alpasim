@@ -1,0 +1,54 @@
+# Should be used in defaults list, e.g.
+# - /driver: static
+# Type validation happens at driver runtime via OmegaConf.structured merge
+
+defaults:
+  - alpamayo_configs    # 4-cam 10Hz sim cameras: the set Alpamayo 1.5 ingests
+  - static_configs      # ground-truth replay overrides
+  - _self_              # YAML values override schema defaults
+
+# Static Driver Configuration for Alpasim
+#
+# Returns a constant-velocity straight trajectory immediately, with no network
+# and no GPU. Intended for ground-truth replay runs, where the ego follows the
+# logged trajectory and the driver exists only so that rendered frames are
+# recorded in the ASL as driver_camera_image entries.
+
+# Logging level (uses wizard's global setting)
+log_level: ${wizard.log_level}
+
+# Model configuration
+model:
+  model_type: static
+  # The static model loads no weights, but the schema requires a path
+  checkpoint_path: "unused"
+  device: "cpu"
+
+# Server configuration
+host: "0.0.0.0"
+port: ???
+
+# Inference configuration
+inference:
+  # Every camera listed here is recorded in the ASL, so this is the set that
+  # ends up in the collected dataset.
+  use_cameras:
+    - camera_cross_left_120fov
+    - camera_front_wide_120fov
+    - camera_cross_right_120fov
+    - camera_front_tele_30fov
+  max_batch_size: 8
+  subsample_factor: 1
+  context_length: 1  # One frame is enough; a longer context only delays t=0
+
+# Route configuration (the prediction is discarded, so commands are unused)
+route:
+  use_waypoint_commands: false
+
+# Output configuration
+output_dir: "/mnt/output/driver"
+
+trajectory_optimizer:
+  enabled: false
+
+plot_debug_images: false
