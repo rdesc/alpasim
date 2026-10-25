@@ -1,0 +1,19 @@
+# @package _global_
+# Every nurec_curated_train scene Alpamayo 1.5 has not been evaluated on yet:
+# 1179 of 1761, the remainder after train_mix200, train_rand200b, train_rand400c
+# (181 completed) and the aborted train_sample400. All artifacts are already
+# cached on NVMe, so nothing downloads.
+#
+# Intended to run with enable_autoresume=true: the sweep is ~33 h at the
+# measured 35.6 scenes/h, so it is expected to be stopped and resumed.
+
+scenes:
+  test_suite_id: nurec_train_unseen
+  scene_ids: null
+  scenes_csv:
+    - "${repo-relative:'data/scenes/sim_scenes.csv'}"
+    - "${repo-relative:'data/scenes/sim_scenes_2604.csv'}"
+  suites_csv:
+    - "${repo-relative:'data/scenes/sim_suites.csv'}"
+    - "${repo-relative:'data/scenes/sim_suites_curated.csv'}"
+    - "${repo-relative:'data/scenes/sim_suites_train_unseen.csv'}"

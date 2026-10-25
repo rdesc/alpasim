@@ -68,6 +68,7 @@ class ModelPrediction:
     reasoning_text: str | None = (
         None  # optional text output (e.g. chain-of-causation reasoning)
     )
+    nav_text: str | None = None  # navigation string the model conditioned on
 
 
 class ModelInputValidationError(ValueError):

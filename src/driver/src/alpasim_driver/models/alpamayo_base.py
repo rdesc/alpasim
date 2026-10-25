@@ -581,4 +581,5 @@ class AlpamayoBaseModel(BaseTrajectoryModel):
             trajectory_xy=trajectory_xy,
             headings=headings,
             reasoning_text=reasoning_text,
+            nav_text=nav_text,
         )

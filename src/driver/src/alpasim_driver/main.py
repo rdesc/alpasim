@@ -929,6 +929,7 @@ class EgoDriverService(EgodriverServiceServicer):
             "num_poses": len(session.poses),
             "trajectory_points": len(alpasim_traj.poses),
             "reasoning_text": reasoning_text,
+            "nav_text": prediction.nav_text,
         }
         debug_info = DriveResponse.DebugInfo(
             unstructured_debug_info=pickle.dumps(debug_data)
