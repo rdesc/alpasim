@@ -41,8 +41,8 @@ static = "alpasim_driver.models.static_model:StaticModel"
 
 [tool.uv.sources]
 vam = { git = "https://github.com/valeoai/VideoActionModel.git" }
-alpamayo_r1 = { git = "https://github.com/NVlabs/alpamayo.git" }
-alpamayo1_5 = { git = "https://github.com/NVlabs/alpamayo1.5.git" }
+alpamayo_r1 = { git = "https://github.com/NVlabs/alpamayo.git", rev = "11a0e01c13a5622377c45ee37d653351453ec43b" }
+alpamayo1_5 = { git = "https://github.com/NVlabs/alpamayo1.5.git", rev = "36aeb4c5938cbc2eb2aed33b22434773da4ab639" }
 alpasim-grpc = { workspace = true }
 alpasim_utils = { workspace = true }
 alpasim_plugins = { workspace = true }
