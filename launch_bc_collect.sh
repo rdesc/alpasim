@@ -10,14 +10,14 @@
 # sits at 90-96%, so render compute is the limit; a run confined to fewer GPUs
 # scales down close to linearly.
 #
-# This is the probe8 configuration (2026-10-23_0444_bc_probe8: 8/8 scenes,
-# rc=0, every scene scoring 1.0 with dist_to_gt_trajectory max 0.00 m) widened
-# to the whole train split. Two things differ from the probe, both deliberate:
+# The configuration was validated on 8 cached scenes first: 8/8, rc=0, every
+# scene scoring 1.0 with dist_to_gt_trajectory max 0.00 m. Two settings were
+# then changed deliberately for the full split:
 #
 #   n_sim_steps=165   The BC target is a 4 s future, and the GT trajectory
 #                     covers 20 s, so a frame rendered after t=16.0 s has no
-#                     full future and its sample is discarded. The probe
-#                     rendered 200 steps and threw the last 40 away.
+#                     full future and its sample is discarded. Rendering 200
+#                     steps threw the last 40 away.
 #                     _log_metadata writes gt_ego_trajectory at rollout start
 #                     from the clip, not from the poses actually simulated, so
 #                     shortening the rollout does not shorten the target --
