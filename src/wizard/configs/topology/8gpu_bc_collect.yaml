@@ -1,0 +1,66 @@
+# @package _global_
+# 8-GPU topology for BC data collection: 24 concurrent rollouts.
+#
+# The stock topologies split the box between a GPU renderer (0-3) and a GPU
+# driver (4-7). BC collection replays the logged trajectory with a CPU-only
+# driver (driver=static), whose output is discarded, so half the box would sit
+# idle. Here the renderer takes all eight GPUs and the driver runs on CPU.
+#
+# Total capacity per service:
+# - REND: 8 GPUs x 1 replica   x 3 rollouts = 24
+# - DRIV: 1 CPU service x 8 replicas x 3 rollouts = 24
+# - PHYS: 8 GPUs x 1 replica   x 3 rollouts = 24
+# - CONT: 1 CPU service x 8 replicas x 3 rollouts = 24
+#
+# Per-GPU renderer load matches the proven 8gpu_12rollouts (3 concurrent x 4
+# cameras); this doubles the GPUs doing it, not the load on each.
+
+defines:
+  # Sized to the concurrency below rather than copied from a 12-rollout
+  # template: base_config warns physics_cache_size "should match or exceed
+  # concurrent scenes to avoid cache thrashing". A 48-way run with cache 16
+  # deadlocked after ~50 rollouts with the GPUs at 0% utilisation.
+  nre_cache_size: 16  # (renderer.n_concurrent_rollouts(=3) + buffer(=1)) x 4 cameras
+  physics_cache_size: 32  # >= the 24 concurrent scenes below
+
+eval:
+  num_processes: 16
+
+services:
+  renderer:
+    replicas_per_container: 1
+    gpus: [0, 1, 2, 3, 4, 5, 6, 7]
+
+  # driver=static is CPU-only (model.device: cpu); it returns a constant
+  # trajectory that force-GT discards, so it needs no GPU.
+  driver:
+    replicas_per_container: 8
+    gpus: null
+
+  physics:
+    replicas_per_container: 1
+    gpus: [0, 1, 2, 3, 4, 5, 6, 7]
+
+  controller:
+    replicas_per_container: 8
+    gpus: null
+
+  trafficsim:
+    replicas_per_container: 1
+    gpus: [0, 1]
+
+runtime:
+  nr_workers: 2
+  endpoints:
+    renderer:
+      n_concurrent_rollouts: 3
+    driver:
+      n_concurrent_rollouts: 3
+      skip: false
+    physics:
+      n_concurrent_rollouts: 3
+      skip: false
+    controller:
+      n_concurrent_rollouts: 3
+    trafficsim:
+      skip: true
