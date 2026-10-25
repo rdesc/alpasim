@@ -1,4 +1,4 @@
-"""Pre-download the nurec_train_mix200 USDZ artifacts into the NVMe scene cache.
+"""Pre-download the nurec_curated_train USDZ artifacts into the NVMe scene cache.
 
 Uses the wizard's own USDZManager so the files land exactly where a later
 `alpasim_wizard` run expects them, and that run finds the cache warm.

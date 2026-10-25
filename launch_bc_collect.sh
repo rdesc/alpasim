@@ -3,16 +3,12 @@
 # all 1761 nurec_curated_train scenes and record the rendered observations.
 #
 # Usage:
-#   ./launch_bc_collect.sh                      8 GPUs, new dated run dir
-#   NGPU=4 ./launch_bc_collect.sh               GPUs 0-3 only, new run dir
-#   NGPU=4 RUN_DIR=<dir> ./launch_bc_collect.sh resume <dir> on GPUs 0-3
+#   ./launch_bc_collect.sh                  new dated run dir
+#   RUN_DIR=<dir> ./launch_bc_collect.sh    resume <dir>
 #
-# NGPU selects topology=<NGPU>gpu_bc_collect and restricts the GPU guard to
-# indices below NGPU, so a 4-GPU run leaves 4-7 for other work. Four GPUs do
-# roughly half the scenes per hour: the 8-GPU run held every GPU at 90-96%,
-# so render compute is the limit and the higher per-GPU concurrency in
-# 4gpu_bc_collect recovers only the artifact-load stalls. Measured: 190
-# scenes/h on 8, 111 scenes/h on 4.
+# Takes the whole box at 190 scenes/h, ~9.5 h for the full split. Every GPU
+# sits at 90-96%, so render compute is the limit; a run confined to fewer GPUs
+# scales down close to linearly.
 #
 # This is the probe8 configuration (2026-10-23_0444_bc_probe8: 8/8 scenes,
 # rc=0, every scene scoring 1.0 with dist_to_gt_trajectory max 0.00 m) widened
@@ -51,11 +47,6 @@ OUT=/mnt/efs/users/rod/repos/alpasim
 REPO=/mnt/efs/users/rod/repos/alpasim-e2e
 CACHE=/opt/dlami/nvme/rod/datasets/alpasim/data/nre-artifacts
 IMAGE=alpasim-base:0.96.0-static
-NGPU="${NGPU:-8}"
-if [[ "$NGPU" != 4 && "$NGPU" != 8 ]]; then
-  echo "NGPU must be 4 or 8 (no other <n>gpu_bc_collect topology exists)" >&2
-  exit 1
-fi
 # A RUN_DIR that already holds rollouts is resumed, not restarted: autoresume
 # drops partial rollouts and skips the ones carrying a _complete marker.
 RUN_DIR="${RUN_DIR:-$OUT/alpamayo_eval_results/$(date +%Y-%m-%d)_bc_collect_train1761}"
@@ -67,7 +58,7 @@ export VIRTUAL_ENV=/opt/dlami/nvme/rod/venvs/alpasim-e2e
 export HF_HOME=/opt/dlami/nvme/rod/cache/hf
 export HF_TOKEN="$(cat /opt/dlami/nvme/rod/cache/hf/token)"
 
-say "=== BC collection launcher started on $NGPU GPUs (pid $$) ==="
+say "=== BC collection launcher started (pid $$) ==="
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   say "ABORT: image $IMAGE not built"; exit 1
@@ -94,23 +85,21 @@ say "scene cache ready ($(ls "$CACHE/all-usdzs" | wc -l) artifacts)"
 
 # --- wait for a free box ---------------------------------------------------
 gpus_busy() {
-  nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits \
-    | awk -F', ' -v n="$NGPU" '$1 < n && $2 > 3000' | wc -l
+  nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits \
+    | awk '$1 > 3000' | wc -l
 }
 for i in $(seq 1 480); do
   busy=$(gpus_busy)
-  [[ "$busy" -eq 0 ]] && { say "GPUs 0-$((NGPU - 1)) free"; break; }
-  [[ $((i % 20)) -eq 0 ]] && say "waiting on GPUs 0-$((NGPU - 1)): $busy busy"
+  [[ "$busy" -eq 0 ]] && { say "all 8 GPUs free"; break; }
+  [[ $((i % 20)) -eq 0 ]] && say "waiting on GPUs: $busy busy"
   sleep 30
 done
-if [[ "$(gpus_busy)" -ne 0 ]]; then
-  say "ABORT: GPUs 0-$((NGPU - 1)) still busy after 4h"; exit 1
-fi
+if [[ "$(gpus_busy)" -ne 0 ]]; then say "ABORT: GPUs still busy after 4h"; exit 1; fi
 
 source setup_local_env.sh >> "$LOG" 2>&1
 mkdir -p "$RUN_DIR"
 resume_from=$(find "$RUN_DIR/rollouts" -name _complete 2>/dev/null | wc -l)
-say "LAUNCHING on GPUs 0-$((NGPU - 1)): $RUN_DIR ($resume_from/1761 already complete)"
+say "LAUNCHING: $RUN_DIR ($resume_from/1761 already complete)"
 start=$SECONDS
 
 # --- progress reporter: a 13 h run needs to be observable while it runs ----
@@ -130,7 +119,7 @@ reporter=$!
 trap 'kill $reporter 2>/dev/null' EXIT
 
 uv run --no-sync alpasim_wizard \
-  deploy=local "topology=${NGPU}gpu_bc_collect" driver=static \
+  deploy=local topology=8gpu_bc_collect driver=static \
   +nurec_scenes=curated_train \
   runtime.simulation_config.n_sim_steps=165 \
   runtime.simulation_config.force_gt_duration_us=20000000 \
@@ -143,7 +132,7 @@ uv run --no-sync alpasim_wizard \
   defines.hf_cache=/opt/dlami/nvme/rod/cache/hf \
   "defines.sensordata=$CACHE" \
   "scenes.scene_cache=$CACHE" \
-  wizard.log_dir="$RUN_DIR" >> "$RUN_DIR/wizard_${NGPU}gpu_$(date +%m%d_%H%M).log" 2>&1
+  wizard.log_dir="$RUN_DIR" >> "$RUN_DIR/wizard_$(date +%m%d_%H%M).log" 2>&1
 rc=$?
 elapsed=$((SECONDS - start))
 kill $reporter 2>/dev/null
