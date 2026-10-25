@@ -37,3 +37,29 @@ asset_harvesting/
 # which does not require uv.lock.
 **/uv.lock
 .worktrees/
+
+# Local run outputs. Eval runs write hundreds of GB of ASL logs into the repo
+# tree (alpamayo_eval_results alone is 652 GB), and every launcher drops a
+# .log/.stdout beside itself; none of it belongs in git.
+*.log
+*.stdout
+*.nohup
+alpamayo_eval_results/
+scene_labels.json
+alpasim_controller_session_uuid.csv
+alpasim_error_log.txt
+
+# Scratch run directories from smoke tests, tutorials and ablations
+bc_forcegt_test*/
+bc_manual*/
+forcegt_bc_test*/
+cot_on*/
+cot_off*/
+nav_on*/
+nav_off*/
+nav_ablation_baseline_videos/
+eval_alpamayo*/
+smoke_val_nav*/
+tutorial*/
+.cot_ablation_dirs_*
+.nav_ablation_dirs_*
