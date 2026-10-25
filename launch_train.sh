@@ -53,6 +53,7 @@ source setup_local_env.sh >> "$LOG" 2>&1
 RESULTS="$OUT/alpamayo_eval_results"
 mkdir -p "$RESULTS"
 RUN_DIR="$RESULTS/$(date +%Y-%m-%d)_train_mix200"
+mkdir -p "$RUN_DIR"   # the wizard log is redirected into it below
 say "LAUNCHING: $RUN_DIR"
 
 uv run --no-sync alpasim_wizard \
@@ -67,7 +68,6 @@ uv run --no-sync alpasim_wizard \
   defines.hf_cache=/opt/dlami/nvme/rod/cache/hf \
   "defines.sensordata=$CACHE" \
   "scenes.scene_cache=$CACHE" \
-  wizard.log_dir="$RUN_DIR" >> "$OUT/train_run.log" 2>&1
+  wizard.log_dir="$RUN_DIR" >> "$RUN_DIR/wizard.log" 2>&1
 rc=$?
-cp "$OUT/train_run.log" "$RUN_DIR/wizard.log" 2>/dev/null
 say "wizard exited rc=$rc ; results: $RUN_DIR/aggregate/"
