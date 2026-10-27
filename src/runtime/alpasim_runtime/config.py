@@ -289,6 +289,10 @@ class SimulationConfig:
     control_timestep_us: int = 100_000
     pose_reporting_interval_us: int = 0  # 0 = no intermediate reporting
     force_gt_duration_us: int = 500_000  # 0.5s
+    # Duration for which traffic replays the recorded log. None keeps traffic
+    # switching together with the ego at force_gt_duration_us; 0 lets the
+    # traffic model drive from the start while the ego still replays the log.
+    traffic_gt_duration_us: int | None = None
     skip_driver_during_force_gt: bool = False
 
     # if true, we assert that each call to policy happens immediately after a frame has been

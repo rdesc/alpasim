@@ -516,6 +516,7 @@ class TestControllerAndEgoPhysicsPipeline:
         rollout_state.unbound.render_start_timestamp_us = 100_000
         rollout_state.unbound.force_gt_duration_us = 200_000
 
+        rollout_state.unbound.traffic_gt_period = range(0, 300_001)
         ctx = StepContext(
             step_start_us=100_000,
             target_time_us=200_000,
@@ -584,6 +585,7 @@ class TestControllerAndEgoPhysicsPipeline:
         rollout_state.unbound.physics_update_mode = PhysicsUpdateMode.ALL_ACTORS
         rollout_state.unbound.render_start_timestamp_us = 100_000
         rollout_state.unbound.force_gt_duration_us = 200_000
+        rollout_state.unbound.traffic_gt_period = range(0, 300_001)
         rollout_state.step_context = StepContext(
             step_start_us=100_000,
             target_time_us=200_000,
@@ -649,6 +651,7 @@ class TestControllerAndEgoPhysicsPipeline:
         rollout_state.unbound.traffic_objs = rollout_state.traffic_objs
         rollout_state.unbound.physics_update_mode = PhysicsUpdateMode.EGO_ONLY
 
+        rollout_state.unbound.traffic_gt_period = range(0, 300_001)
         ctx = StepContext(
             step_start_us=100_000,
             target_time_us=200_000,
@@ -671,6 +674,73 @@ class TestControllerAndEgoPhysicsPipeline:
         service_bundle.physics.ground_intersection.assert_not_awaited()
         pose = ctx.traffic_trajectories["car_1"].interpolate_pose(200_000)
         assert pose.vec3.tolist() == [2.0, 1.0, 0.0]
+
+    @pytest.mark.asyncio
+    async def test_traffic_comes_from_model_while_ego_is_force_gt(
+        self,
+        rollout_state: RolloutState,
+        service_bundle: ServiceBundle,
+    ):
+        """A traffic window shorter than force-GT lets the model drive traffic.
+
+        The ego still replays the log (``force_gt=True``) while traffic is
+        sourced from the trafficsim response rather than the recorded poses.
+        """
+        gt_traffic_traj = Trajectory.from_poses(
+            np.array([0, 100_000, 200_000, 300_000], dtype=np.uint64),
+            [
+                _make_pose(0.0, 1.0, 0.0),
+                _make_pose(1.0, 1.0, 0.0),
+                _make_pose(2.0, 1.0, 0.0),
+                _make_pose(3.0, 1.0, 0.0),
+            ],
+        )
+        rollout_state.traffic_objs["car_1"] = TrafficObject(
+            track_id="car_1",
+            aabb=AABB(x=4.0, y=2.0, z=1.5),
+            trajectory=gt_traffic_traj,
+            is_static=False,
+            label_class="VEHICLE",
+        )
+        rollout_state.unbound.traffic_objs = rollout_state.traffic_objs
+        rollout_state.unbound.physics_update_mode = PhysicsUpdateMode.EGO_ONLY
+        # Traffic hands over before the ego does.
+        rollout_state.unbound.traffic_gt_period = range(0, 100_001)
+
+        model_traj = Trajectory.from_poses(
+            np.array([100_000, 200_000], dtype=np.uint64),
+            [_make_pose(8.0, 1.0, 0.0), _make_pose(9.0, 1.0, 0.0)],
+        )
+        rollout_state.step_context = StepContext(
+            step_start_us=100_000,
+            target_time_us=200_000,
+            force_gt=True,
+            corrected_ego_trajectory=_make_trajectory_from_range(
+                100_000, 200_000, 100_000
+            ),
+            traffic_response=TrafficReturn(
+                object_trajectory_updates=[
+                    ObjectTrajectoryUpdate(
+                        object_id="car_1",
+                        trajectory=geometry.trajectory_to_grpc(model_traj),
+                    )
+                ]
+            ),
+        )
+
+        event = PhysicsEvent(
+            timestamp_us=100_000,
+            control_timestep_us=100_000,
+            services=service_bundle,
+            target=PhysicsTarget.TRAFFIC,
+        )
+        await event.run(rollout_state, EventQueue())
+
+        pose = rollout_state.step_context.traffic_trajectories[
+            "car_1"
+        ].interpolate_pose(200_000)
+        # The model pose, not the logged [2.0, 1.0, 0.0].
+        assert pose.vec3.tolist() == [9.0, 1.0, 0.0]
 
     @pytest.mark.asyncio
     async def test_policy_event_creates_step_context_with_driver_trajectory(

@@ -34,7 +34,7 @@ async def test_traffic_session_request_uses_scene_id() -> None:
                 ego_aabb=AABB(x=4.5, y=2.0, z=1.7),
                 gt_ego_aabb_trajectory=Trajectory.create_empty(),
                 start_timestamp_us=0,
-                force_gt_duration_us=100_000,
+                traffic_gt_duration_us=100_000,
                 control_timestep_us=100_000,
             ),
         )

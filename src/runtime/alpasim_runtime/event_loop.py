@@ -521,7 +521,7 @@ class EventBasedRollout:
                             self.unbound
                         ),
                         start_timestamp_us=self.unbound.egomotion_context_start_us,
-                        force_gt_duration_us=self.unbound.force_gt_duration_us,
+                        traffic_gt_duration_us=self.unbound.traffic_gt_duration_us,
                         control_timestep_us=self.unbound.control_timestep_us,
                     ),
                 )

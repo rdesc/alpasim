@@ -178,6 +178,8 @@ class UnboundRollout:
     camera_configs: list[RuntimeCameraConfig]
     first_camera_frame_ranges_us: dict[str, range]
     force_gt_period: range
+    traffic_gt_duration_us: int
+    traffic_gt_period: range
     image_format: ImageFormat
     ego_mask_rig_config_id: str
     assert_zero_decision_delay: bool
@@ -262,6 +264,16 @@ class UnboundRollout:
             timing.closed_loop_start_us + 1,
         )
 
+        traffic_gt_duration_us = (
+            simulation_config.traffic_gt_duration_us
+            if simulation_config.traffic_gt_duration_us is not None
+            else simulation_config.force_gt_duration_us
+        )
+        traffic_gt_period = range(
+            timing.render_start_timestamp_us,
+            timing.render_start_timestamp_us + traffic_gt_duration_us + 1,
+        )
+
         if simulation_config.vehicle is not None:
             vehicle = simulation_config.vehicle
         elif data_source.rig.vehicle_config is not None:
@@ -306,6 +318,8 @@ class UnboundRollout:
             camera_configs=camera_configs,
             first_camera_frame_ranges_us=timing.first_camera_frame_ranges_us,
             force_gt_period=force_gt_period,
+            traffic_gt_duration_us=traffic_gt_duration_us,
+            traffic_gt_period=traffic_gt_period,
             physics_update_mode=simulation_config.physics_update_mode,
             image_format={"jpeg": ImageFormat.JPEG, "png": ImageFormat.PNG}[
                 simulation_config.image_format

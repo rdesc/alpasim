@@ -125,6 +125,8 @@ def test_create_uses_rig_start_for_context_and_closed_loop_after_force_gt(
     assert log_metadata.start_timestamp_us == 0
     assert log_metadata.render_start_timestamp_us == 150_000
     assert rollout.force_gt_period == range(150_000, 250_001)
+    # Unset traffic_gt_duration_us keeps traffic switching with the ego.
+    assert rollout.traffic_gt_period == rollout.force_gt_period
     assert rollout.first_camera_frame_ranges_us["camera_front"] == range(
         170_000, 200_000
     )

@@ -312,6 +312,10 @@ runtime:
     n_sim_steps: 200 # how many steps to simulate in a rollout
     n_rollouts: 1 # how many rollouts to simulate for that scenario
     force_gt_duration_us: 1_700_000 # 1.7s
+    # How long traffic replays the recorded log. null keeps traffic switching
+    # with the ego at force_gt_duration_us; a shorter value lets the traffic
+    # model drive while the ego still replays the log.
+    traffic_gt_duration_us: null
     skip_driver_during_force_gt: false # When true, force-GT warmup does not call driver.drive
     send_recording_ground_truth: false # Disable sending ground truth data to the driver
     # Which sensorsim bundled-render RPC to use (NONE = one render_rgb per camera).

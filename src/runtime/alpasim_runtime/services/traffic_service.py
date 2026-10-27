@@ -56,10 +56,10 @@ class TrafficService(ServiceBase[TrafficServiceStub]):
         gt_ego_aabb_trajectory = cfg.gt_ego_aabb_trajectory
         start_timestamp_us = cfg.start_timestamp_us
         # Traffic responses are committed on the following StepEvent, so keep
-        # CATK on logged traffic state through the last frame that runtime
-        # renders from force-GT.
+        # the traffic model on logged state through the last frame the runtime
+        # sources traffic from the log.
         handover_time_us = (
-            start_timestamp_us + cfg.force_gt_duration_us + cfg.control_timestep_us
+            start_timestamp_us + cfg.traffic_gt_duration_us + cfg.control_timestep_us
         )
 
         # Convert traffic objects to ObjectTrajectory format

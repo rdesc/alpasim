@@ -37,7 +37,7 @@ class TrafficSessionConfig:
     ego_aabb: AABB
     gt_ego_aabb_trajectory: Trajectory
     start_timestamp_us: int
-    force_gt_duration_us: int
+    traffic_gt_duration_us: int
     control_timestep_us: int
 
 

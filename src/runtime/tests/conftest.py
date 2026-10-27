@@ -170,6 +170,8 @@ def mock_unbound(simple_trajectory: Trajectory) -> MagicMock:
     unbound.pose_reporting_interval_us = 0
     unbound.force_gt_duration_us = 100_000
     unbound.force_gt_period = range(0, 100_000)
+    unbound.traffic_gt_duration_us = 100_000
+    unbound.traffic_gt_period = range(0, 100_000)
     unbound.skip_driver_during_force_gt = False
     unbound.save_path_root = "/tmp/test"
     unbound.image_format = 2  # JPEG

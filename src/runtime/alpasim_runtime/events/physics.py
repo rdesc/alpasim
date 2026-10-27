@@ -51,9 +51,9 @@ class PhysicsEvent(RecurringEvent):
         assert ctx is not None
 
         if self.target == PhysicsTarget.EGO:
-            assert (
-                ctx.step_start_us == self.timestamp_us
-            ), f"EGO physics timestamp mismatch: {ctx.step_start_us} != {self.timestamp_us}"
+            assert ctx.step_start_us == self.timestamp_us, (
+                f"EGO physics timestamp mismatch: {ctx.step_start_us} != {self.timestamp_us}"
+            )
             await self._run_ego(state, ctx)
         else:
             await self._run_traffic(state, ctx)
@@ -100,13 +100,13 @@ class PhysicsEvent(RecurringEvent):
         trafficsim = self.services.trafficsim
 
         target_time_us = self.timestamp_us + self.interval_us
-        force_gt = ctx.force_gt
+        traffic_from_log = target_time_us in state.unbound.traffic_gt_period
 
         ego_ds_pose = ctx.corrected_ego_trajectory.interpolate_pose(target_time_us)
 
         traffic_poses_future: dict[str, geometry.Pose] = {}
 
-        if force_gt:
+        if traffic_from_log:
             for key, traffic_obj in state.unbound.traffic_objs.items():
                 if target_time_us not in traffic_obj.trajectory.time_range_us:
                     continue
@@ -125,12 +125,12 @@ class PhysicsEvent(RecurringEvent):
                 )
 
         should_blend_force_gt_traffic = (
-            force_gt
+            traffic_from_log
             and state.unbound.physics_update_mode == PhysicsUpdateMode.ALL_ACTORS
         )
         should_apply_traffic_physics = (
             state.unbound.physics_update_mode == PhysicsUpdateMode.ALL_ACTORS
-            and not force_gt
+            and not traffic_from_log
         ) or should_blend_force_gt_traffic
 
         if should_apply_traffic_physics and traffic_poses_future:
