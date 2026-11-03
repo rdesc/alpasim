@@ -38,3 +38,7 @@ asset_harvesting/
 # which does not require uv.lock.
 **/uv.lock
 .worktrees/
+
+# Sweep outputs: hundreds of GB of rollouts/videos/parquet. Keepers live on EFS
+# under /mnt/efs/users/rod/, not in git.
+*_eval_results/
