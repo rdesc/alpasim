@@ -1,0 +1,98 @@
+# Should be used in defaults list, e.g.
+# - /driver: autovla
+# Type validation happens at driver runtime via OmegaConf.structured merge
+
+defaults:
+  - autovla_configs # Camera and simulation configs for 3-cam 2Hz
+  - _self_ # YAML values override schema defaults
+
+# AutoVLA Driver Configuration for Alpasim
+# https://github.com/ucla-mobility/AutoVLA
+
+# Logging level (uses wizard's global setting)
+log_level: ${wizard.log_level}
+
+# Model configuration
+model:
+  model_type: autovla # Entry-point name in alpasim.models registry
+  # AutoVLA_PDMS_89.ckpt from https://huggingface.co/Zewei-Zhou/AutoVLA
+  # (LoRA already merged, so it loads without peft).
+  checkpoint_path: "/mnt/drivers/autovla/AutoVLA_PDMS_89.ckpt"
+  # AutoVLA has no separate tokenizer; this slot carries the Qwen2.5-VL-3B-Instruct
+  # directory the checkpoint was fine-tuned from, which supplies the processor.
+  tokenizer_path: "/mnt/drivers/autovla/Qwen2.5-VL-3B-Instruct"
+  device: "cuda"
+
+# Server configuration
+host: "0.0.0.0"
+port: ???
+
+# Inference configuration
+inference:
+  # Order is irrelevant here (the model maps logical ids to prompt roles), but
+  # all three must be present.
+  use_cameras:
+    - "camera_cross_left_120fov"
+    - "camera_front_wide_120fov"
+    - "camera_cross_right_120fov"
+  # One autoregressive rollout per step already saturates the GPU; the model
+  # has no batched path.
+  max_batch_size: 1
+  subsample_factor: 1
+  context_length: 4 # 4 frames per camera, 0.5 s apart
+  output_frequency_hz: 2 # 10 poses at 0.5 s = 5 s horizon
+
+# Rectify the f-theta renders back to the nuPlan pinhole model AutoVLA was
+# trained on. Same parameters as the Transfuser plugin, which targets the same
+# nuPlan/NAVSIM camera rig.
+rectification:
+  # L0 - cross left camera
+  camera_cross_left_120fov:
+    focal_length: [1545.0, 1545.0]
+    # principal_point is [x, y] (width, height); resolution_hw is [height, width].
+    principal_point: [960.0, 560.0]
+    resolution_hw: [1080, 1920]
+    radial: [-0.356123, 0.172545, -0.052310, 0.0, 0.0, 0.0]
+    tangential: [-0.002130, 0.000464]
+    thin_prism: [0.0, 0.0, 0.0, 0.0]
+    max_overscan_scale: 2.0
+    safety_margin_px: 10
+
+  # F0 - front wide camera
+  camera_front_wide_120fov:
+    focal_length: [1545.0, 1545.0]
+    principal_point: [960.0, 560.0]
+    resolution_hw: [1080, 1920]
+    radial: [-0.356123, 0.172545, -0.052310, 0.0, 0.0, 0.0]
+    tangential: [-0.002130, 0.000464]
+    thin_prism: [0.0, 0.0, 0.0, 0.0]
+    max_overscan_scale: 2.0
+    safety_margin_px: 10
+
+  # R0 - cross right camera
+  camera_cross_right_120fov:
+    focal_length: [1545.0, 1545.0]
+    principal_point: [960.0, 560.0]
+    resolution_hw: [1080, 1920]
+    radial: [-0.356123, 0.172545, -0.052310, 0.0, 0.0, 0.0]
+    tangential: [-0.002130, 0.000464]
+    thin_prism: [0.0, 0.0, 0.0, 0.0]
+    max_overscan_scale: 2.0
+    safety_margin_px: 10
+
+# Route configuration — AutoVLA conditions on a discrete command
+# ("turn left" / "keep forward" / "turn right"), the nuPlan convention.
+route:
+  default_command: 2 # Default command: 0=right, 1=left, 2=straight
+  use_waypoint_commands: true
+  command_distance_threshold: 3.0 # Lateral displacement threshold in meters
+  min_lookahead_distance: 20.0 # Minimum distance to look ahead for waypoints in meters
+
+# Output configuration
+output_dir: "/mnt/output/driver"
+
+# Trajectory optimization (disabled by default for AutoVLA)
+trajectory_optimizer:
+  enabled: false
+
+plot_debug_images: false

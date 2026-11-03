@@ -1,0 +1,80 @@
+# Standalone AutoVLA driver configuration (external driver process).
+#
+# Run with:
+#   python -m alpasim_driver.main \
+#     --config-path=<repo>/plugins/autovla_driver/configs \
+#     --config-name=autovla_standalone
+#
+# Then launch the wizard with `driver=autovla driver_source=external_static`,
+# which supplies the simulation-side camera rig and 2 Hz control rate from
+# alpasim_autovla/configs/driver/autovla_configs.yaml.
+#
+# The driver-side settings below (inference, rectification, route) mirror
+# alpasim_autovla/configs/driver/autovla.yaml; that file is the source of truth
+# for container runs, this one for external runs. Keep them in sync.
+
+log_level: INFO
+
+model:
+  model_type: autovla
+  # Host paths, not the container's /mnt/drivers/... — this process runs outside Docker.
+  checkpoint_path: "/mnt/efs/users/rod/ckpts/AutoVLA/AutoVLA_PDMS_89.ckpt"
+  tokenizer_path: "/opt/dlami/nvme/rod/cache/hf-models/Qwen2.5-VL-3B-Instruct"
+  device: "cuda"
+
+host: "0.0.0.0"
+port: 6890
+
+inference:
+  use_cameras:
+    - "camera_cross_left_120fov"
+    - "camera_front_wide_120fov"
+    - "camera_cross_right_120fov"
+  max_batch_size: 1
+  subsample_factor: 1
+  context_length: 4
+  output_frequency_hz: 2
+
+rectification:
+  camera_cross_left_120fov:
+    focal_length: [1545.0, 1545.0]
+    principal_point: [960.0, 560.0]
+    resolution_hw: [1080, 1920]
+    radial: [-0.356123, 0.172545, -0.052310, 0.0, 0.0, 0.0]
+    tangential: [-0.002130, 0.000464]
+    thin_prism: [0.0, 0.0, 0.0, 0.0]
+    max_overscan_scale: 2.0
+    safety_margin_px: 10
+
+  camera_front_wide_120fov:
+    focal_length: [1545.0, 1545.0]
+    principal_point: [960.0, 560.0]
+    resolution_hw: [1080, 1920]
+    radial: [-0.356123, 0.172545, -0.052310, 0.0, 0.0, 0.0]
+    tangential: [-0.002130, 0.000464]
+    thin_prism: [0.0, 0.0, 0.0, 0.0]
+    max_overscan_scale: 2.0
+    safety_margin_px: 10
+
+  camera_cross_right_120fov:
+    focal_length: [1545.0, 1545.0]
+    principal_point: [960.0, 560.0]
+    resolution_hw: [1080, 1920]
+    radial: [-0.356123, 0.172545, -0.052310, 0.0, 0.0, 0.0]
+    tangential: [-0.002130, 0.000464]
+    thin_prism: [0.0, 0.0, 0.0, 0.0]
+    max_overscan_scale: 2.0
+    safety_margin_px: 10
+
+route:
+  default_command: 2 # straight
+  use_waypoint_commands: true
+  command_distance_threshold: 3.0
+  min_lookahead_distance: 20.0
+
+output_dir: "."
+
+trajectory_optimizer:
+  enabled: false
+
+plot_debug_images: false

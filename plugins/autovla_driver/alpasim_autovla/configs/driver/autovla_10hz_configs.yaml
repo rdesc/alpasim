@@ -1,0 +1,64 @@
+# @package _global_
+
+# Runtime configuration for the AutoVLA driver at a 10 Hz control rate,
+# matching how Alpamayo 1.5 is evaluated (see driver/alpamayo_configs.yaml).
+#
+# AutoVLA's prompt states the four frames per camera are "sampled at 2 Hz", so
+# the *context spacing* stays 0.5 s no matter the control rate — going to 0.1 s
+# spacing would put the model off the distribution it was fine-tuned on.
+# What changes here is how often the policy replans: the cameras run at 10 Hz
+# and the driver sets inference.subsample_factor=5, so each call still sees
+# frames at t, t-0.5 s, t-1.0 s, t-1.5 s, but a new plan is produced every
+# 0.1 s instead of every 0.5 s.
+#
+# Cost: ~5x the driver calls and ~5x the rendered frames of autovla_configs.yaml.
+
+wizard:
+  # See autovla_configs.yaml — materialised so `driver_source=external_static`
+  # runs can set wizard.external_services.driver on the CLI.
+  external_services: {}
+
+runtime:
+  simulation_config:
+    # AlpaSim's own default is 1.7 s, which at 10 Hz with subsample_factor=5
+    # leaves exactly 17 frames against the 16 the 4-frame/0.5 s context needs —
+    # no margin for a late frame. 2.0 s buys four spare frames and still has the
+    # policy take over well inside the 20 s evaluated window.
+    force_gt_duration_us: 2_000_000
+    n_sim_steps: 200  # 20 s at 10 Hz, matching the Alpamayo 1.5 baseline runs
+    n_rollouts: 1
+    control_timestep_us: 100_000 # 10 Hz replanning
+    ego_mask_rig_config_id: null
+    skip_driver_during_force_gt: true
+
+    cameras:
+      - height: 1080
+        width: 1920
+        logical_id: camera_cross_left_120fov
+        frame_interval_us: 100_000 # 10 Hz; subsampled 5x to the model's 2 Hz
+        shutter_duration_us: 30_000
+      - height: 1080
+        width: 1920
+        logical_id: camera_front_wide_120fov
+        frame_interval_us: 100_000
+        shutter_duration_us: 30_000
+      - height: 1080
+        width: 1920
+        logical_id: camera_cross_right_120fov
+        frame_interval_us: 100_000
+        shutter_duration_us: 30_000
+
+  extra_cameras:
+    # nuPlan L0 / F0 / R0 extrinsics; see autovla_configs.yaml.
+    - logical_id: camera_cross_left_120fov
+      rig_to_camera:
+        translation_m: [1.646354, 0.143369, 1.521469]
+        rotation_xyzw: [0.679354, -0.207915, 0.215233, -0.670018]
+    - logical_id: camera_front_wide_120fov
+      rig_to_camera:
+        translation_m: [1.670100, -0.025875, 1.522623]
+        rotation_xyzw: [0.509222, -0.503331, 0.495086, -0.492180]
+    - logical_id: camera_cross_right_120fov
+      rig_to_camera:
+        translation_m: [1.626168, -0.161517, 1.526269]
+        rotation_xyzw: [0.205424, -0.674057, 0.676355, -0.214458]

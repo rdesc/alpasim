@@ -1,0 +1,66 @@
+# @package _global_
+
+# Runtime configuration for the AutoVLA driver (3 nuPlan-style cameras at 2 Hz).
+#
+# AutoVLA consumes 4 frames per camera spaced 0.5 s apart and plans 10 poses at
+# 0.5 s, so the camera rate, the control rate and the model's output rate are
+# all 2 Hz and subsample_factor stays at 1.
+#
+# force_gt_duration_us of 3 s gives the frame cache 6 frames before the driver
+# takes over, comfortably more than the 4-frame context.
+
+wizard:
+  # Materialise the node so `driver_source=external_static` runs can point the
+  # runtime at a host-side driver with
+  #   wizard.external_services.driver='["localhost:6890"]'
+  # Overriding it on the CLI is impossible while it is None (the schema default).
+  # Empty is a no-op for container runs.
+  external_services: {}
+
+runtime:
+  simulation_config:
+    force_gt_duration_us: 3_000_000  # 6 frames at 2 Hz; the context needs 4
+    n_sim_steps: 40  # 20 s at 2 Hz, the same evaluated window as the 10 Hz config
+    n_rollouts: 1
+    control_timestep_us: 500_000
+    ego_mask_rig_config_id: null
+    skip_driver_during_force_gt: true
+
+    # Rendered at the nuPlan resolution; AutoVLA's processor downsamples to
+    # ~110k pixels per frame itself.
+    cameras:
+      - height: 1080
+        width: 1920
+        logical_id: camera_cross_left_120fov
+        frame_interval_us: 500_000
+        shutter_duration_us: 30_000
+      - height: 1080
+        width: 1920
+        logical_id: camera_front_wide_120fov
+        frame_interval_us: 500_000
+        shutter_duration_us: 30_000
+      - height: 1080
+        width: 1920
+        logical_id: camera_cross_right_120fov
+        frame_interval_us: 500_000
+        shutter_duration_us: 30_000
+
+  extra_cameras:
+    # nuPlan L0 / F0 / B0-less rig: same calibrated extrinsics the Transfuser
+    # plugin uses, since LTFv6 and AutoVLA were both trained on nuPlan/NAVSIM.
+    # Intrinsics live in autovla.yaml under `rectification`.
+    # L0 - cross left camera
+    - logical_id: camera_cross_left_120fov
+      rig_to_camera:
+        translation_m: [1.646354, 0.143369, 1.521469]
+        rotation_xyzw: [0.679354, -0.207915, 0.215233, -0.670018]
+    # F0 - front wide camera
+    - logical_id: camera_front_wide_120fov
+      rig_to_camera:
+        translation_m: [1.670100, -0.025875, 1.522623]
+        rotation_xyzw: [0.509222, -0.503331, 0.495086, -0.492180]
+    # R0 - cross right camera
+    - logical_id: camera_cross_right_120fov
+      rig_to_camera:
+        translation_m: [1.626168, -0.161517, 1.526269]
+        rotation_xyzw: [0.205424, -0.674057, 0.676355, -0.214458]

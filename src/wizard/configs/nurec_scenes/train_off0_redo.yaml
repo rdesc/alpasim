@@ -1,0 +1,21 @@
+# @package _global_
+# The 582 nurec_curated_train scenes that have never been evaluated at
+# route_start_offset_m=0.0: the 581 covered by train_mix200, train_rand200b and
+# train_rand400c, which all ran at 40.0, plus the one scene that fell into no
+# earlier suite. Re-running these puts the whole 1761-scene train split on a
+# single offset and makes it comparable with train_unseen.
+#
+# At 40.0 the route start is trimmed past route_to_nav_text's own [5, 40] m
+# search window, so nav_text collapses to "Continue straight" and those runs do
+# not test nav conditioning.
+
+scenes:
+  test_suite_id: nurec_train_off0_redo
+  scene_ids: null
+  scenes_csv:
+    - "${repo-relative:'data/scenes/sim_scenes.csv'}"
+    - "${repo-relative:'data/scenes/sim_scenes_2604.csv'}"
+  suites_csv:
+    - "${repo-relative:'data/scenes/sim_suites.csv'}"
+    - "${repo-relative:'data/scenes/sim_suites_curated.csv'}"
+    - "${repo-relative:'data/scenes/sim_suites_train_off0_redo.csv'}"

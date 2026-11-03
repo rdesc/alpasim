@@ -1,0 +1,69 @@
+# @package _global_
+# AutoVLA preset that asks NuRec for the nuPlan pinhole view *directly*, instead
+# of rendering f-theta and remapping it in the driver (autovla_10hz.yaml).
+#
+# Same virtual camera as the `rectification:` block there -- f=1545,
+# pp=(960,560), 1080x1920, the nuPlan radial/tangential coefficients -- so the
+# geometry the model sees is unchanged. What changes is where the pixels come
+# from. Those intrinsics span ~63.7 deg horizontally; the driver-side path
+# resamples that out of a 120 deg f-theta frame, i.e. roughly 1019 source pixels
+# stretched to 1920, so it is ~1.9x upsampled. Rendering the pinhole natively
+# spends the full 1920 on the same field of view.
+#
+# Pair with the driver started on configs/autovla_standalone_10hz_norect.yaml:
+# the renderer already emits pinhole, so the driver must not rectify again.
+
+defaults:
+  - autovla_10hz@driver
+  - _self_
+
+driver:
+  # The renderer supplies the pinhole view now.
+  rectification: null
+
+runtime:
+  # Replaces the extra_cameras list from autovla_10hz_configs.yaml wholesale
+  # (OmegaConf merges lists by replacement), so the nuPlan L0/F0/R0 extrinsics
+  # are repeated here unchanged -- only `intrinsics` is new.
+  extra_cameras:
+    - logical_id: camera_cross_left_120fov
+      rig_to_camera:
+        translation_m: [1.646354, 0.143369, 1.521469]
+        rotation_xyzw: [0.679354, -0.207915, 0.215233, -0.670018]
+      intrinsics:
+        model: opencv_pinhole
+        opencv_pinhole:
+          focal_length: [1545.0, 1545.0]
+          principal_point: [960.0, 560.0]
+          radial: [-0.356123, 0.172545, -0.052310, 0.0, 0.0, 0.0]
+          tangential: [-0.002130, 0.000464]
+          thin_prism: [0.0, 0.0, 0.0, 0.0]
+      resolution_hw: [1080, 1920]
+
+    - logical_id: camera_front_wide_120fov
+      rig_to_camera:
+        translation_m: [1.670100, -0.025875, 1.522623]
+        rotation_xyzw: [0.509222, -0.503331, 0.495086, -0.492180]
+      intrinsics:
+        model: opencv_pinhole
+        opencv_pinhole:
+          focal_length: [1545.0, 1545.0]
+          principal_point: [960.0, 560.0]
+          radial: [-0.356123, 0.172545, -0.052310, 0.0, 0.0, 0.0]
+          tangential: [-0.002130, 0.000464]
+          thin_prism: [0.0, 0.0, 0.0, 0.0]
+      resolution_hw: [1080, 1920]
+
+    - logical_id: camera_cross_right_120fov
+      rig_to_camera:
+        translation_m: [1.626168, -0.161517, 1.526269]
+        rotation_xyzw: [0.205424, -0.674057, 0.676355, -0.214458]
+      intrinsics:
+        model: opencv_pinhole
+        opencv_pinhole:
+          focal_length: [1545.0, 1545.0]
+          principal_point: [960.0, 560.0]
+          radial: [-0.356123, 0.172545, -0.052310, 0.0, 0.0, 0.0]
+          tangential: [-0.002130, 0.000464]
+          thin_prism: [0.0, 0.0, 0.0, 0.0]
+      resolution_hw: [1080, 1920]
