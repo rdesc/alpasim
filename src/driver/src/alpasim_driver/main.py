@@ -139,6 +139,15 @@ def _rig_est_offsets_to_local_positions(
 
 
 # Unique queue marker instructing the worker thread to flush and exit.
+def _rectify_to_array(
+    session: "Session", logical_id: str, image: Image.Image
+) -> tuple[Image.Image, np.ndarray]:
+    """Decode and rectify one frame. Blocking CPU work -- call off the event loop."""
+
+    rectified = session.rectify_image(logical_id, image)
+    return rectified, np.array(rectified)
+
+
 _SENTINEL_JOB = object()
 
 
@@ -788,7 +797,13 @@ class EgoDriverService(EgodriverServiceServicer):
         if grpc_image.logical_id not in session.desired_cameras_logical_ids:
             raise ValueError(f"Camera {grpc_image.logical_id} not in desired cameras")
 
-        rectified_image = session.rectify_image(grpc_image.logical_id, image)
+        # Decoding and building the rectification maps are pure CPU and take seconds
+        # on a camera's first frame. Inline, they block this server's event loop, so
+        # every other RPC of the same step (route, egopose, the other two cameras)
+        # queues behind them and the runtime's observation barrier can time out.
+        rectified_image, rectified_array = await asyncio.to_thread(
+            _rectify_to_array, session, grpc_image.logical_id, image
+        )
         self._maybe_save_rectification_debug_image(
             image,
             rectified_image,
@@ -798,7 +813,7 @@ class EgoDriverService(EgodriverServiceServicer):
         )
         session.add_image(
             grpc_image.logical_id,
-            np.array(rectified_image),
+            rectified_array,
             grpc_image.frame_end_us,
         )
 
