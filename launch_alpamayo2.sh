@@ -56,8 +56,15 @@ start=$SECONDS
 reporter=$!
 trap 'kill $reporter 2>/dev/null' EXIT
 
+# Own image tag: the default alpasim-base:<repo version> (0.89.0) is the e2e-main image the Alpamayo 1.5
+# runs use, which has no alpamayo2_super. Built by hand from this worktree:
+#   docker build -t alpasim-base:0.89.0-a2 --secret id=netrc,src=$HOME/.netrc .
+IMAGE=alpasim-base:0.89.0-a2
+docker image inspect "$IMAGE" > /dev/null 2>&1 || { say "ABORT: image $IMAGE missing"; exit 1; }
+
 uv run --no-sync alpasim_wizard \
   deploy=local topology=8gpu_a2super "driver=$DRIVER" \
+  "defines.base_image=$IMAGE" \
   "+nurec_scenes=$SUITE" "${SCENES[@]}" \
   runtime.simulation_config.n_rollouts=1 \
   runtime.simulation_config.route_start_offset_m=40.0 \
