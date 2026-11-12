@@ -5,6 +5,7 @@
 
 from .alpamayo1_5_model import Alpamayo15Model
 from .alpamayo1_model import Alpamayo1Model
+from .alpamayo2_model import Alpamayo2Model
 from .base import (
     BaseTrajectoryModel,
     CameraFrame,
@@ -14,12 +15,12 @@ from .base import (
     PredictionInput,
 )
 from .manual_model import ManualModel
-from .static_model import StaticModel
 from .vam_model import VAMModel
 
 __all__ = [
     "Alpamayo15Model",
     "Alpamayo1Model",
+    "Alpamayo2Model",
     "BaseTrajectoryModel",
     "CameraFrame",
     "CameraImages",
@@ -27,6 +28,5 @@ __all__ = [
     "ManualModel",
     "ModelPrediction",
     "PredictionInput",
-    "StaticModel",
     "VAMModel",
 ]
