@@ -1,0 +1,12 @@
+# Alpamayo 2 Super with navigation text: alpamayo2 plus the route-derived navigation
+# string Alpamayo 1.5 gets ("Turn left in 20m" / "Continue straight", nav_text.route_to_nav_text),
+# in the prompt's nav_instruction slot, without classifier-free guidance (as the Alpamayo 1.5
+# runs: use_classifier_free_guidance_nav false).
+# - /driver: alpamayo2_nav
+
+defaults:
+  - alpamayo2
+  - _self_
+
+model:
+  nav_text: true

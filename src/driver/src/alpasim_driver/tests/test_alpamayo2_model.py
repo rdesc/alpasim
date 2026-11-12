@@ -413,3 +413,111 @@ def test_checkpoint_waypoint_frequency_must_match_driver(
             device=torch.device("cpu"),
             camera_ids=[CAMERA_ID],
         )
+
+
+def _left_turn_route(timestamp_us: int) -> "Route":
+    from alpasim_grpc.v0.egodriver_pb2 import Route
+
+    # Rig frame at the route timestamp: 20 m ahead, then 30 m to the left.
+    ahead = [(x, 0.0, 0.0) for x in np.arange(0.0, 20.0, 2.0)]
+    left = [(20.0, y, 0.0) for y in np.arange(2.0, 30.0, 2.0)]
+    return Route(
+        timestamp_us=timestamp_us,
+        waypoints=[Vec3(x=x, y=y, z=z) for x, y, z in ahead + left],
+    )
+
+
+def _nav_prediction_input() -> PredictionInput:
+    return PredictionInput(
+        camera_images={CAMERA_ID: [(LATEST_TIMESTAMP_US, np.zeros((8, 8, 3), np.uint8))]},
+        command=DriveCommand.STRAIGHT,
+        speed=0.0,
+        acceleration=0.0,
+        ego_pose_history=_poses(),
+        inference_seed=0,
+        previous_plan=None,
+        route=_left_turn_route(LATEST_TIMESTAMP_US),
+    )
+
+
+def _patch_tokenisers(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
+    calls: dict[str, dict] = {}
+
+    def plain(data: dict, _config: object, _tokenizer: object) -> dict:
+        calls["plain"] = data
+        return data
+
+    def with_nav(data: dict, _config: object, _tokenizer: object) -> dict:
+        calls["nav"] = data
+        return data
+
+    monkeypatch.setattr(
+        "alpasim_driver.models.alpamayo2_model.helper.prepare_model_inputs", plain
+    )
+    monkeypatch.setattr(
+        "alpasim_driver.models.alpamayo2_model._prepare_model_inputs_with_nav",
+        with_nav,
+    )
+    monkeypatch.setattr(
+        "alpasim_driver.models.alpamayo2_model.helper.to_device",
+        lambda data, _device: data,
+    )
+    return calls
+
+
+def test_nav_text_from_route_goes_into_the_prompt_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _model(_candidates())
+    model._selection_strategy = TrajectorySelectionStrategy.ALWAYS_FIRST
+    model._use_nav_text = True
+    calls = _patch_tokenisers(monkeypatch)
+
+    model.predict(_nav_prediction_input())
+
+    assert "plain" not in calls
+    assert calls["nav"]["nav_text"][0].startswith("Turn left in ")
+
+
+def test_nav_text_off_keeps_the_plain_prompt_even_with_a_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _model(_candidates())
+    model._selection_strategy = TrajectorySelectionStrategy.ALWAYS_FIRST
+    calls = _patch_tokenisers(monkeypatch)
+
+    model.predict(_nav_prediction_input())
+
+    assert "nav" not in calls
+    assert "nav_text" not in calls["plain"]
+
+
+def test_nav_prompt_places_the_instruction_in_the_user_turn() -> None:
+    pytest.importorskip("alpamayo2_super.chat_template.conversation")
+    from alpamayo2_super.chat_template.conversation import build_conversation
+
+    from alpasim_driver.models.alpamayo2_model import _NAV_COMPONENTS_ORDER
+
+    data = {
+        "image_frames": torch.zeros((1, 4, 3, 8, 8), dtype=torch.uint8),
+        "camera_indices": torch.tensor([1]),
+        "ego_history_xyz": torch.zeros((1, 1, 16, 3)),
+        "ego_history_rot": torch.eye(3).expand(1, 1, 16, 3, 3),
+        "nav_text": ["Turn left in 20m"],
+    }
+    messages = build_conversation(
+        data=data,
+        num_tokens_per_history_traj=16,
+        num_tokens_per_future_traj=64,
+        components_order=_NAV_COMPONENTS_ORDER,
+        components_prompt=["cot", "traj_future"],
+        generation_mode=True,
+        camera_ids=data["camera_indices"],
+    )
+    user_text = " ".join(
+        part.get("text", "")
+        for message in messages
+        if message["role"] == "user"
+        for part in message["content"]
+    )
+    assert "Turn left in 20m" in user_text

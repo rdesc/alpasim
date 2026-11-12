@@ -56,6 +56,11 @@ class ModelConfig:
     # Alpamayo 2 only. Splits candidate sampling into sequential calls to cap
     # peak GPU memory; unset samples all candidates in one call.
     trajectory_candidate_microbatch_size: int | None = None
+    # Alpamayo 2 only. Condition on the navigation string built from the served
+    # route exactly as for Alpamayo 1.5 (``nav_text.route_to_nav_text``), put in
+    # the prompt's ``nav_instruction`` slot, without guidance. Off is upstream's
+    # plain (no-route) path.
+    nav_text: bool = False
     trajectory_selection: TrajectorySelectionConfig = field(
         default_factory=TrajectorySelectionConfig
     )

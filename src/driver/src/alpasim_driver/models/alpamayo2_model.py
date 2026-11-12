@@ -31,7 +31,9 @@ from .alpamayo_base import (
     _validate_ego_history_span,
     build_ego_history,
     configure_deterministic_runtime,
+    route_in_rig_at_t0,
 )
+from .nav_text import route_to_nav_text
 from .base import (
     BaseTrajectoryModel,
     CameraImages,
@@ -48,6 +50,62 @@ from .trajectory_selection import (
 
 logger = logging.getLogger(__name__)
 
+# Prompt layout with a navigation instruction, as in alpamayo2's
+# examples/two_gpu_nav_cfg_demo.py; helper.create_messages hard-codes the
+# layout without one (["image", "traj_history", "prompt"]).
+_NAV_COMPONENTS_ORDER = ["image", "traj_history", "nav_instruction", "prompt"]
+
+
+def _prepare_model_inputs_with_nav(
+    data: dict[str, Any], model_config: Any, tokenizer: Any
+) -> dict[str, Any]:
+    """``helper.prepare_model_inputs`` with ``data["nav_text"]`` in the prompt."""
+    from alpamayo2_super.chat_template.conversation import build_conversation
+
+    messages = build_conversation(
+        data=data,
+        num_tokens_per_history_traj=model_config.tokens_per_history_traj,
+        num_tokens_per_future_traj=model_config.tokens_per_future_traj,
+        components_order=_NAV_COMPONENTS_ORDER,
+        components_prompt=["cot", "traj_future"],
+        generation_mode=True,
+        include_camera_ids=model_config.include_camera_ids,
+        camera_ids=data["camera_indices"],
+        include_frame_nums=model_config.frame_label == "frame_num",
+    )
+    if messages[-1]["role"] == "assistant" and not messages[-1]["content"]:
+        messages = messages[:-1]
+    processor = helper.get_processor(tokenizer, model_config)
+    has_assistant_content = messages[-1]["role"] == "assistant" and bool(
+        messages[-1]["content"]
+    )
+    text = processor.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=not has_assistant_content,
+        add_vision_id=False,
+        continue_final_message=has_assistant_content,
+    )
+    images = data["image_frames"].flatten(0, 1)
+    images = (images.float() / 255.0) if images.dtype == torch.uint8 else images.float()
+    tokenized_data = dict(
+        processor(
+            text=text,
+            images=images,
+            videos=None,
+            padding=False,
+            return_tensors="pt",
+            do_rescale=False,
+        )
+    )
+    if tokenized_data["input_ids"].shape[0] != 1:
+        raise ValueError("prepare_model_inputs expects one sample at a time")
+    return {
+        "tokenized_data": tokenized_data,
+        "ego_history_xyz": data["ego_history_xyz"],
+        "ego_history_rot": data["ego_history_rot"],
+    }
+
 
 class Alpamayo2Model(BaseTrajectoryModel):
     """Alpamayo 2 Super wrapper implementing the common interface."""
@@ -62,6 +120,8 @@ class Alpamayo2Model(BaseTrajectoryModel):
     # tokens.  Passed explicitly rather than left to the checkpoint's fallback,
     # so the budget the expert conditions on is visible at the call site.
     MAX_GENERATION_LENGTH: int = 256
+    # Off unless from_config/__init__ turns it on (see ModelConfig.nav_text).
+    _use_nav_text: bool = False
 
     @classmethod
     def from_config(
@@ -99,6 +159,7 @@ class Alpamayo2Model(BaseTrajectoryModel):
             selection_strategy=TrajectorySelectionStrategy(selection.strategy),
             max_num_distance_points=selection.max_num_distance_points,
             skip_first_n_distance_points=selection.skip_first_n_distance_points,
+            use_nav_text=model_cfg.nav_text,
         )
 
     def __init__(
@@ -118,6 +179,7 @@ class Alpamayo2Model(BaseTrajectoryModel):
         ),
         max_num_distance_points: int = 64,
         skip_first_n_distance_points: int = 0,
+        use_nav_text: bool = False,
     ):
         """Initialize Alpamayo 2 Super model.
 
@@ -234,16 +296,18 @@ class Alpamayo2Model(BaseTrajectoryModel):
         self._selection_strategy = selection_strategy
         self._max_num_distance_points = max_num_distance_points
         self._skip_first_n_distance_points = skip_first_n_distance_points
+        self._use_nav_text = use_nav_text
 
         logger.info(
             "Initialised Alpamayo2Model with %d cameras, context_length=%d, "
             "num_traj_samples=%d, trajectory_candidate_microbatch_size=%s, "
-            "selection_strategy=%s",
+            "selection_strategy=%s, nav_text=%s",
             len(camera_ids),
             context_length,
             num_traj_samples,
             trajectory_candidate_microbatch_size,
             selection_strategy,
+            use_nav_text,
         )
 
     # ------------------------------------------------------------------
@@ -357,9 +421,26 @@ class Alpamayo2Model(BaseTrajectoryModel):
             "ego_history_xyz": ego_history_xyz,
             "ego_history_rot": ego_history_rot,
         }
-        model_inputs = helper.prepare_model_inputs(
-            data, self._model.config, self._model.tokenizer
-        )
+        nav_text = None
+        if self._use_nav_text and prediction_input.route is not None:
+            # The same string Alpamayo 1.5 gets (AlpamayoBase.predict).
+            nav_text = route_to_nav_text(
+                route_in_rig_at_t0(
+                    prediction_input.route,
+                    prediction_input.ego_pose_history,
+                    pose_local_to_rig_t0,
+                )
+            )
+        logger.debug("nav_text=%r", nav_text)
+        if nav_text:
+            data["nav_text"] = [nav_text]
+            model_inputs = _prepare_model_inputs_with_nav(
+                data, self._model.config, self._model.tokenizer
+            )
+        else:
+            model_inputs = helper.prepare_model_inputs(
+                data, self._model.config, self._model.tokenizer
+            )
         model_inputs = helper.to_device(model_inputs, self._device)
 
         pred_xyz, pred_rot, _logprob, extra = self._sample_trajectory_candidates(
