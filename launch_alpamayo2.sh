@@ -13,6 +13,7 @@
 #   SUITE=... SMOKE=<n> ./launch_alpamayo2.sh            only the first n scenes of the suite
 #   DRIVER=alpamayo2_satnav ...                          teacher satnav as nav text (RECORDED route from the car)
 #   DRIVER_CONC=1 ...                                    scenes each driver serves at once (default 3)
+#   IMAGE_DECODE=cpu ...                                 decode camera JPEGs on the CPU (default cuda)
 #   TOPOLOGY=8gpu_a2super ...                            all 8 GPUs (default 4gpu_a2super: GPUs 4-7 only)
 set -uo pipefail
 
@@ -21,6 +22,11 @@ DRIVER="${DRIVER:-alpamayo2}"   # alpamayo2 (upstream, no navigation) or alpamay
 # 2026-11-12: with 3 per driver, 3 of 4 drivers died within ~1 h of the first val100 pass (NaN in CoC
 # sampling, device-side assert), each soon after a new scene started on a busy driver.
 DRIVER_CONC="${DRIVER_CONC:-3}"
+# Where the driver decodes camera JPEGs: "cuda" (upstream's default, nvJPEG on the inference GPU) or "cpu"
+# (PIL; what the old Alpamayo 1.5 runs did). 2026-11-13: with cuda decode and 3 scenes per driver, Alpamayo 1.5
+# hit the same NaN device-side assert in CoC sampling as Alpamayo 2 on its first steps; its old CPU-decode runs
+# never did.
+IMAGE_DECODE="${IMAGE_DECODE:-cuda}"
 # 4gpu_a2super: GPUs 4-7 only (2 drivers); 8gpu_a2super: all 8 (4 drivers on 4-7).
 TOPOLOGY="${TOPOLOGY:-4gpu_a2super}"
 # Served route. Default: upstream Alpasim's (MAP, from the car: route_start_offset_m 0), from which
@@ -55,7 +61,7 @@ esac
 gpu_used() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$1"; }
 for g in $DRIVER_GPUS; do u=$(gpu_used $g); [[ "$u" -gt 3000 ]] && { say "ABORT: driver GPU $g has ${u} MiB in use"; exit 1; }; done
 for g in $OTHER_GPUS; do u=$(gpu_used $g); [[ "$u" -gt 40000 ]] && { say "ABORT: renderer GPU $g has ${u} MiB in use"; exit 1; }; done
-say "topology $TOPOLOGY, $DRIVER_CONC scene(s) per driver, driver $DRIVER, route $ROUTE_TYPE offset $ROUTE_OFFSET m"
+say "topology $TOPOLOGY, $DRIVER_CONC scene(s) per driver, image decode $IMAGE_DECODE, driver $DRIVER, route $ROUTE_TYPE offset $ROUTE_OFFSET m"
 root_avail=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
 if [[ "$root_avail" -lt 40 ]]; then say "ABORT: / below 40G free (${root_avail}G)"; exit 1; fi
 
@@ -91,6 +97,7 @@ uv run --no-sync alpasim_wizard \
   deploy=local "topology=$TOPOLOGY" "driver=$DRIVER" \
   "defines.base_image=$IMAGE" \
   "runtime.endpoints.driver.n_concurrent_rollouts=$DRIVER_CONC" \
+  "driver.model.image_decode_device=$IMAGE_DECODE" \
   "+nurec_scenes=$SUITE" "${SCENES[@]}" \
   runtime.simulation_config.n_rollouts=1 \
   "runtime.simulation_config.route_generator_type=$ROUTE_TYPE" \
