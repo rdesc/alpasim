@@ -36,8 +36,16 @@ export HF_HOME=/opt/dlami/nvme/rod/cache/hf
 export HF_TOKEN="$(cat /opt/dlami/nvme/rod/cache/hf/token)"
 
 say "=== Alpamayo 2 Super launcher started (pid $$) on $(hostname -s) ==="
-busy=$(nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits | awk -F', ' '$1>=4 && $2>3000' | wc -l)
-if [[ "$busy" -ne 0 ]]; then say "ABORT: $busy of GPUs 4-7 busy"; exit 1; fi
+# A driver needs ~71 GB, so its GPU must be empty; a renderer/physics GPU only needs room (shared GPUs
+# are fine there: rod 2026-11-11, other jobs may hold some memory).
+case "$TOPOLOGY" in
+  4gpu_a2super) DRIVER_GPUS="6 7"; OTHER_GPUS="4 5" ;;
+  8gpu_a2super) DRIVER_GPUS="4 5 6 7"; OTHER_GPUS="0 1 2 3" ;;
+  *) say "ABORT: unknown topology $TOPOLOGY"; exit 1 ;;
+esac
+gpu_used() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$1"; }
+for g in $DRIVER_GPUS; do u=$(gpu_used $g); [[ "$u" -gt 3000 ]] && { say "ABORT: driver GPU $g has ${u} MiB in use"; exit 1; }; done
+for g in $OTHER_GPUS; do u=$(gpu_used $g); [[ "$u" -gt 40000 ]] && { say "ABORT: renderer GPU $g has ${u} MiB in use"; exit 1; }; done
 say "topology $TOPOLOGY, $DRIVER_CONC scene(s) per driver, driver $DRIVER"
 root_avail=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
 if [[ "$root_avail" -lt 40 ]]; then say "ABORT: / below 40G free (${root_avail}G)"; exit 1; fi
