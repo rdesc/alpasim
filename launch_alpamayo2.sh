@@ -11,6 +11,7 @@
 #   [DRIVER=alpamayo2_nav] SUITE=dev100|val100 ./launch_alpamayo2.sh   new dated run dir
 #   SUITE=... RUN_DIR=<dir> ./launch_alpamayo2.sh        resume <dir> (autoresume skips completed rollouts)
 #   SUITE=... SMOKE=<n> ./launch_alpamayo2.sh            only the first n scenes of the suite
+#   DRIVER=alpamayo2_satnav ...                          teacher satnav as nav text (RECORDED route from the car)
 #   DRIVER_CONC=1 ...                                    scenes each driver serves at once (default 3)
 #   TOPOLOGY=8gpu_a2super ...                            all 8 GPUs (default 4gpu_a2super: GPUs 4-7 only)
 set -uo pipefail
@@ -22,6 +23,11 @@ DRIVER="${DRIVER:-alpamayo2}"   # alpamayo2 (upstream, no navigation) or alpamay
 DRIVER_CONC="${DRIVER_CONC:-3}"
 # 4gpu_a2super: GPUs 4-7 only (2 drivers); 8gpu_a2super: all 8 (4 drivers on 4-7).
 TOPOLOGY="${TOPOLOGY:-4gpu_a2super}"
+# Served route. alpamayo2_satnav reads the recorded drive from the car (RECORDED, offset 0). The others keep
+# the Alpamayo 1.5 runs' MAP route starting 40 m ahead, from which route_to_nav_text almost always says
+# "Continue straight" (it looks for turns 5-40 m ahead: 2026-11-13, 104 of 18k dev100 steps were turns).
+if [[ "$DRIVER" == alpamayo2_satnav* ]]; then ROUTE_TYPE=RECORDED; ROUTE_OFFSET=0.0; else ROUTE_TYPE=MAP; ROUTE_OFFSET=40.0; fi
+ROUTE_TYPE="${ROUTE_TYPE_OVERRIDE:-$ROUTE_TYPE}"; ROUTE_OFFSET="${ROUTE_OFFSET_OVERRIDE:-$ROUTE_OFFSET}"
 OUT=/mnt/efs/users/rod/repos/alpasim
 REPO=/mnt/efs/users/rod/repos/alpasim-a2
 CACHE=/opt/dlami/nvme/rod/datasets/alpasim/data/nre-artifacts
@@ -46,7 +52,7 @@ esac
 gpu_used() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$1"; }
 for g in $DRIVER_GPUS; do u=$(gpu_used $g); [[ "$u" -gt 3000 ]] && { say "ABORT: driver GPU $g has ${u} MiB in use"; exit 1; }; done
 for g in $OTHER_GPUS; do u=$(gpu_used $g); [[ "$u" -gt 40000 ]] && { say "ABORT: renderer GPU $g has ${u} MiB in use"; exit 1; }; done
-say "topology $TOPOLOGY, $DRIVER_CONC scene(s) per driver, driver $DRIVER"
+say "topology $TOPOLOGY, $DRIVER_CONC scene(s) per driver, driver $DRIVER, route $ROUTE_TYPE offset $ROUTE_OFFSET m"
 root_avail=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
 if [[ "$root_avail" -lt 40 ]]; then say "ABORT: / below 40G free (${root_avail}G)"; exit 1; fi
 
@@ -84,7 +90,8 @@ uv run --no-sync alpasim_wizard \
   "runtime.endpoints.driver.n_concurrent_rollouts=$DRIVER_CONC" \
   "+nurec_scenes=$SUITE" "${SCENES[@]}" \
   runtime.simulation_config.n_rollouts=1 \
-  runtime.simulation_config.route_start_offset_m=40.0 \
+  "runtime.simulation_config.route_generator_type=$ROUTE_TYPE" \
+  "runtime.simulation_config.route_start_offset_m=$ROUTE_OFFSET" \
   runtime.enable_autoresume=true \
   eval.allow_aggregation_with_failed_rollouts=true \
   eval.parse_unstructured_debug_info=false \

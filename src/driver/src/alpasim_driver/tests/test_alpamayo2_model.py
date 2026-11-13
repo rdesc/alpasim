@@ -521,3 +521,36 @@ def test_nav_prompt_places_the_instruction_in_the_user_turn() -> None:
         for part in message["content"]
     )
     assert "Turn left in 20m" in user_text
+
+
+def test_satnav_source_words_the_teacher_decision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _model(_candidates())
+    model._selection_strategy = TrajectorySelectionStrategy.ALWAYS_FIRST
+    model._use_nav_text = True
+    model._nav_text_source = "satnav"
+    calls = _patch_tokenisers(monkeypatch)
+
+    model.predict(_nav_prediction_input())
+
+    # _left_turn_route: 20 m ahead, then 30 m to the left; satnav buckets the turn start to 20 m.
+    assert calls["nav"]["nav_text"][0] == "Turn left in 20m"
+
+
+def test_unknown_nav_text_source_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_from_pretrained(*_args, **_kwargs):
+        raise AssertionError("must fail before loading")
+
+    monkeypatch.setattr(
+        "alpasim_driver.models.alpamayo2_model.Alpamayo2Super.from_pretrained",
+        fake_from_pretrained,
+        raising=False,
+    )
+    with pytest.raises(ValueError, match="nav_text_source"):
+        Alpamayo2Model(
+            checkpoint_path="x",
+            device=torch.device("cpu"),
+            camera_ids=[CAMERA_ID],
+            nav_text_source="map",
+        )

@@ -33,6 +33,7 @@ from .alpamayo_base import (
     configure_deterministic_runtime,
     route_in_rig_at_t0,
 )
+from . import nav_satnav
 from .nav_text import route_to_nav_text
 from .base import (
     BaseTrajectoryModel,
@@ -122,6 +123,8 @@ class Alpamayo2Model(BaseTrajectoryModel):
     MAX_GENERATION_LENGTH: int = 256
     # Off unless from_config/__init__ turns it on (see ModelConfig.nav_text).
     _use_nav_text: bool = False
+    _nav_text_source: str = "route"
+    _satnav_bear_as: str = "turn"
 
     @classmethod
     def from_config(
@@ -160,6 +163,8 @@ class Alpamayo2Model(BaseTrajectoryModel):
             max_num_distance_points=selection.max_num_distance_points,
             skip_first_n_distance_points=selection.skip_first_n_distance_points,
             use_nav_text=model_cfg.nav_text,
+            nav_text_source=model_cfg.nav_text_source,
+            satnav_bear_as=model_cfg.satnav_bear_as,
         )
 
     def __init__(
@@ -180,6 +185,8 @@ class Alpamayo2Model(BaseTrajectoryModel):
         max_num_distance_points: int = 64,
         skip_first_n_distance_points: int = 0,
         use_nav_text: bool = False,
+        nav_text_source: str = "route",
+        satnav_bear_as: str = "turn",
     ):
         """Initialize Alpamayo 2 Super model.
 
@@ -244,6 +251,14 @@ class Alpamayo2Model(BaseTrajectoryModel):
             raise ValueError(
                 f"diffusion_steps must be at least 1, got {diffusion_steps}."
             )
+        if nav_text_source not in ("route", "satnav"):
+            raise ValueError(
+                f"nav_text_source must be 'route' or 'satnav', got {nav_text_source!r}."
+            )
+        if satnav_bear_as not in ("turn", "straight"):
+            raise ValueError(
+                f"satnav_bear_as must be 'turn' or 'straight', got {satnav_bear_as!r}."
+            )
 
         missing_cameras = [c for c in camera_ids if c not in CAMERA_NAME_TO_INDEX]
         if missing_cameras:
@@ -297,17 +312,21 @@ class Alpamayo2Model(BaseTrajectoryModel):
         self._max_num_distance_points = max_num_distance_points
         self._skip_first_n_distance_points = skip_first_n_distance_points
         self._use_nav_text = use_nav_text
+        self._nav_text_source = nav_text_source
+        self._satnav_bear_as = satnav_bear_as
 
         logger.info(
             "Initialised Alpamayo2Model with %d cameras, context_length=%d, "
             "num_traj_samples=%d, trajectory_candidate_microbatch_size=%s, "
-            "selection_strategy=%s, nav_text=%s",
+            "selection_strategy=%s, nav_text=%s, nav_text_source=%s, satnav_bear_as=%s",
             len(camera_ids),
             context_length,
             num_traj_samples,
             trajectory_candidate_microbatch_size,
             selection_strategy,
             use_nav_text,
+            nav_text_source,
+            satnav_bear_as,
         )
 
     # ------------------------------------------------------------------
@@ -423,15 +442,22 @@ class Alpamayo2Model(BaseTrajectoryModel):
         }
         nav_text = None
         if self._use_nav_text and prediction_input.route is not None:
-            # The same string Alpamayo 1.5 gets (AlpamayoBase.predict).
-            nav_text = route_to_nav_text(
-                route_in_rig_at_t0(
-                    prediction_input.route,
-                    prediction_input.ego_pose_history,
-                    pose_local_to_rig_t0,
-                )
+            route_in_rig = route_in_rig_at_t0(
+                prediction_input.route,
+                prediction_input.ego_pose_history,
+                pose_local_to_rig_t0,
             )
-        logger.debug("nav_text=%r", nav_text)
+            if self._nav_text_source == "satnav":
+                # The Claude teacher's satnav decision, in Alpamayo's phrasing.
+                instr = nav_satnav.instruction(route_in_rig[:, :2])
+                nav_text = nav_satnav.alpamayo_text(instr, self._satnav_bear_as)
+                logger.info(
+                    "nav_text=%r (satnav %r)", nav_text, instr and instr["text"]
+                )
+            else:
+                # The same string Alpamayo 1.5 gets (AlpamayoBase.predict).
+                nav_text = route_to_nav_text(route_in_rig)
+                logger.info("nav_text=%r", nav_text)
         if nav_text:
             data["nav_text"] = [nav_text]
             model_inputs = _prepare_model_inputs_with_nav(

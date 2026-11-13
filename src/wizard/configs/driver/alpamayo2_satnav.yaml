@@ -1,0 +1,14 @@
+# Alpamayo 2 Super with the Claude teacher's satnav decision (nav_satnav.py: AgenticDriver satnav.py,
+# rod/alpasim-teacher ec81e33) worded the way Alpamayo was trained ("Turn left in 20m", "Continue straight"),
+# in the prompt's nav_instruction slot, without guidance. Needs the served route to be the recorded drive
+# from the car: launch_alpamayo2.sh sets route_generator_type RECORDED and route_start_offset_m 0 for it.
+# - /driver: alpamayo2_satnav
+
+defaults:
+  - alpamayo2
+  - _self_
+
+model:
+  nav_text: true
+  nav_text_source: satnav
+  satnav_bear_as: turn

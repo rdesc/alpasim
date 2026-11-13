@@ -61,6 +61,14 @@ class ModelConfig:
     # the prompt's ``nav_instruction`` slot, without guidance. Off is upstream's
     # plain (no-route) path.
     nav_text: bool = False
+    # Alpamayo 2 only, with nav_text. Where the navigation string comes from:
+    # "route" = nav_text.route_to_nav_text (Alpamayo 1.5's classifier); "satnav" =
+    # the Claude teacher's satnav decision on the served route (nav_satnav.py),
+    # which needs the route to start at the car (route_start_offset_m 0).
+    nav_text_source: str = "route"
+    # With nav_text_source "satnav": how a bear (10-25 deg) is worded, "turn" or
+    # "straight" (Alpamayo has no phrase for a gentle bend or a fork).
+    satnav_bear_as: str = "turn"
     trajectory_selection: TrajectorySelectionConfig = field(
         default_factory=TrajectorySelectionConfig
     )
