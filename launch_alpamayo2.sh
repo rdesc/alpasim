@@ -6,7 +6,7 @@
 # + upstream NVlabs/alpasim main's driver package (affc2ea), driver=alpamayo2 as upstream ships it: the
 # 4 cameras of Alpamayo 1.5 at 10 Hz, 4 context frames, reasoning (CoC) on, no route / navigation input,
 # 1 trajectory sample, no trajectory optimiser. Scene settings as launch_alpamayo_dev100.sh
-# (route_start_offset_m 40, defaults force_gt_duration_us 1.7 s, control_timestep_us 0.1 s).
+# (defaults force_gt_duration_us 1.7 s, control_timestep_us 0.1 s); route below.
 #
 #   [DRIVER=alpamayo2_nav] SUITE=dev100|val100 ./launch_alpamayo2.sh   new dated run dir
 #   SUITE=... RUN_DIR=<dir> ./launch_alpamayo2.sh        resume <dir> (autoresume skips completed rollouts)
@@ -23,10 +23,13 @@ DRIVER="${DRIVER:-alpamayo2}"   # alpamayo2 (upstream, no navigation) or alpamay
 DRIVER_CONC="${DRIVER_CONC:-3}"
 # 4gpu_a2super: GPUs 4-7 only (2 drivers); 8gpu_a2super: all 8 (4 drivers on 4-7).
 TOPOLOGY="${TOPOLOGY:-4gpu_a2super}"
-# Served route. alpamayo2_satnav reads the recorded drive from the car (RECORDED, offset 0). The others keep
-# the Alpamayo 1.5 runs' MAP route starting 40 m ahead, from which route_to_nav_text almost always says
-# "Continue straight" (it looks for turns 5-40 m ahead: 2026-11-13, 104 of 18k dev100 steps were turns).
-if [[ "$DRIVER" == alpamayo2_satnav* ]]; then ROUTE_TYPE=RECORDED; ROUTE_OFFSET=0.0; else ROUTE_TYPE=MAP; ROUTE_OFFSET=40.0; fi
+# Served route. Default: upstream Alpasim's (MAP, from the car: route_start_offset_m 0), from which
+# route_to_nav_text (alpamayo2_nav) sees turns 5-40 m ahead. alpamayo2_satnav reads the recorded drive from the
+# car (RECORDED, offset 0). The Alpamayo 1.5 runs and our A2 runs before 2026-11-13 used offset 40
+# (ROUTE_OFFSET_OVERRIDE=40.0 reproduces them): the route then starts 40 m out and route_to_nav_text almost
+# always says "Continue straight" (104 of 18k A1.5 dev100 steps were turns).
+if [[ "$DRIVER" == alpamayo2_satnav* ]]; then ROUTE_TYPE=RECORDED; else ROUTE_TYPE=MAP; fi
+ROUTE_OFFSET=0.0
 ROUTE_TYPE="${ROUTE_TYPE_OVERRIDE:-$ROUTE_TYPE}"; ROUTE_OFFSET="${ROUTE_OFFSET_OVERRIDE:-$ROUTE_OFFSET}"
 OUT=/mnt/efs/users/rod/repos/alpasim
 REPO=/mnt/efs/users/rod/repos/alpasim-a2
