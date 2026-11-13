@@ -11,10 +11,17 @@
 #   [DRIVER=alpamayo2_nav] SUITE=dev100|val100 ./launch_alpamayo2.sh   new dated run dir
 #   SUITE=... RUN_DIR=<dir> ./launch_alpamayo2.sh        resume <dir> (autoresume skips completed rollouts)
 #   SUITE=... SMOKE=<n> ./launch_alpamayo2.sh            only the first n scenes of the suite
+#   DRIVER_CONC=1 ...                                    scenes each driver serves at once (default 3)
+#   TOPOLOGY=8gpu_a2super ...                            all 8 GPUs (default 4gpu_a2super: GPUs 4-7 only)
 set -uo pipefail
 
 SUITE="${SUITE:?set SUITE=dev100 or val100}"
 DRIVER="${DRIVER:-alpamayo2}"   # alpamayo2 (upstream, no navigation) or alpamayo2_nav
+# 2026-11-12: with 3 per driver, 3 of 4 drivers died within ~1 h of the first val100 pass (NaN in CoC
+# sampling, device-side assert), each soon after a new scene started on a busy driver.
+DRIVER_CONC="${DRIVER_CONC:-3}"
+# 4gpu_a2super: GPUs 4-7 only (2 drivers); 8gpu_a2super: all 8 (4 drivers on 4-7).
+TOPOLOGY="${TOPOLOGY:-4gpu_a2super}"
 OUT=/mnt/efs/users/rod/repos/alpasim
 REPO=/mnt/efs/users/rod/repos/alpasim-a2
 CACHE=/opt/dlami/nvme/rod/datasets/alpasim/data/nre-artifacts
@@ -30,7 +37,8 @@ export HF_TOKEN="$(cat /opt/dlami/nvme/rod/cache/hf/token)"
 
 say "=== Alpamayo 2 Super launcher started (pid $$) on $(hostname -s) ==="
 busy=$(nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits | awk -F', ' '$1>=4 && $2>3000' | wc -l)
-if [[ "$busy" -ne 0 ]]; then say "ABORT: $busy of the driver GPUs 4-7 busy"; exit 1; fi
+if [[ "$busy" -ne 0 ]]; then say "ABORT: $busy of GPUs 4-7 busy"; exit 1; fi
+say "topology $TOPOLOGY, $DRIVER_CONC scene(s) per driver, driver $DRIVER"
 root_avail=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
 if [[ "$root_avail" -lt 40 ]]; then say "ABORT: / below 40G free (${root_avail}G)"; exit 1; fi
 
@@ -63,8 +71,9 @@ IMAGE=alpasim-base:0.89.0-a2
 docker image inspect "$IMAGE" > /dev/null 2>&1 || { say "ABORT: image $IMAGE missing"; exit 1; }
 
 uv run --no-sync alpasim_wizard \
-  deploy=local topology=8gpu_a2super "driver=$DRIVER" \
+  deploy=local "topology=$TOPOLOGY" "driver=$DRIVER" \
   "defines.base_image=$IMAGE" \
+  "runtime.endpoints.driver.n_concurrent_rollouts=$DRIVER_CONC" \
   "+nurec_scenes=$SUITE" "${SCENES[@]}" \
   runtime.simulation_config.n_rollouts=1 \
   runtime.simulation_config.route_start_offset_m=40.0 \

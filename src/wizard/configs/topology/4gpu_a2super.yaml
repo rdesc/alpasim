@@ -1,0 +1,48 @@
+# @package _global_
+# 4-GPU topology for Alpamayo 2 Super on GPUs 4-7 only (GPUs 0-3 left free): one 34B driver per GPU on
+# 6 and 7 (~71 GB each, so a renderer does not fit next to it), renderer and physics on 4 and 5.
+# Driver capacity = 2 x n_concurrent_rollouts (launch_alpamayo2.sh sets it with DRIVER_CONC).
+
+defines:
+  nre_cache_size: 16  # (renderer.n_concurrent_rollouts(=3) + buffer(=1)) x expected_camera_count (=4)
+  physics_cache_size: 16
+
+services:
+  renderer:
+    replicas_per_container: 1
+    gpus: [4, 5]
+
+  driver:
+    gpus: [6, 7]
+    replicas_per_container: 1
+
+  physics:
+    replicas_per_container: 1
+    gpus: [4, 5]
+
+  controller:
+    replicas_per_container: 2
+    gpus: null
+
+  trafficsim:
+    replicas_per_container: 1
+    gpus: [4]
+
+runtime:
+  nr_workers: 1
+  endpoints:
+    # REND: 2 x 1 x 3 = 6
+    # DRIV: 2 x 1 x 3 = 6 (or 2 with DRIVER_CONC=1)
+    # PHYS: 2 x 1 x 3 = 6
+    # CONT: 1 (CPU) x 2 x 3 = 6
+    renderer:
+      n_concurrent_rollouts: 3
+    driver:
+      n_concurrent_rollouts: 3
+    physics:
+      n_concurrent_rollouts: 3
+      skip: false
+    controller:
+      n_concurrent_rollouts: 3
+    trafficsim:
+      skip: true
