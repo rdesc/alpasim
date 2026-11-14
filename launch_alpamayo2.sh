@@ -13,7 +13,7 @@
 #   SUITE=... SMOKE=<n> ./launch_alpamayo2.sh            only the first n scenes of the suite
 #   DRIVER=alpamayo2_satnav ...                          teacher satnav as nav text (RECORDED route from the car)
 #   DRIVER_CONC=1 ...                                    scenes each driver serves at once (default 3)
-#   IMAGE_DECODE=cpu ...                                 decode camera JPEGs on the CPU (default cuda)
+#   IMAGE_DECODE=cuda ...                                decode camera JPEGs on the GPU (nvJPEG; default cpu). Needs DRIVER_CONC=1: crashes with >1 scene per driver
 #   TOPOLOGY=8gpu_a2super ...                            all 8 GPUs (default 4gpu_a2super: GPUs 4-7 only)
 set -uo pipefail
 
@@ -26,7 +26,7 @@ DRIVER_CONC="${DRIVER_CONC:-3}"
 # (PIL; what the old Alpamayo 1.5 runs did). 2026-11-13: with cuda decode and 3 scenes per driver, Alpamayo 1.5
 # hit the same NaN device-side assert in CoC sampling as Alpamayo 2 on its first steps; its old CPU-decode runs
 # never did.
-IMAGE_DECODE="${IMAGE_DECODE:-cuda}"
+IMAGE_DECODE="${IMAGE_DECODE:-cpu}"
 # 4gpu_a2super: GPUs 4-7 only (2 drivers); 8gpu_a2super: all 8 (4 drivers on 4-7).
 TOPOLOGY="${TOPOLOGY:-4gpu_a2super}"
 # Served route. Default: upstream Alpasim's (MAP, from the car: route_start_offset_m 0), from which

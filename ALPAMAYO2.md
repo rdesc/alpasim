@@ -22,6 +22,8 @@ upstream driver talks to e2e-main's runtime unchanged (the only driver-side prot
 | `eae1a88` | upstream route by default (offset 0); `tools/nav_probe/` |
 | `8694795` | upstream `driver/alpamayo1_5.yaml` (e2e-main's used a key the upstream driver renamed) |
 | `e7cc087` | `IMAGE_DECODE=cpu\|cuda` |
+| `6e756fd` | this file |
+| (next) | `IMAGE_DECODE` defaults to `cpu`; A1.5 val100 / dev100 results on this stack |
 
 ## Where everything lives
 
@@ -51,8 +53,8 @@ upstream driver talks to e2e-main's runtime unchanged (the only driver-side prot
 
 ```bash
 cd /mnt/efs/users/rod/repos/alpasim-a2
-DRIVER=alpamayo2_nav SUITE=val100 DRIVER_CONC=1 ./launch_alpamayo2.sh                 # what produced the A2 val100 result
-DRIVER=alpamayo1_5  SUITE=val100 DRIVER_CONC=3 IMAGE_DECODE=cpu ./launch_alpamayo2.sh  # A1.5 on the same stack
+DRIVER=alpamayo2_nav SUITE=val100 DRIVER_CONC=1 IMAGE_DECODE=cuda ./launch_alpamayo2.sh  # what produced the A2 val100 result
+DRIVER=alpamayo1_5  SUITE=val100 ./launch_alpamayo2.sh                                    # A1.5 on the same stack (3 per driver, CPU decode)
 RUN_DIR=<existing run dir> ... ./launch_alpamayo2.sh                                   # resume: skips scenes with _complete
 ```
 
@@ -61,7 +63,7 @@ RUN_DIR=<existing run dir> ... ./launch_alpamayo2.sh                            
 | `SUITE` | `dev100`, `val100` | AgenticDriver's split: dev100 = 100 curated_train scenes, val100 = 100 of the 441 curated_val |
 | `DRIVER` | `alpamayo2` (no navigation, as upstream ships it), `alpamayo2_nav` (upstream `route_to_nav_text`), `alpamayo2_satnav` (teacher satnav), `alpamayo1_5` | |
 | `DRIVER_CONC` | `3` | scenes each driver serves at once. **Use 1 with `IMAGE_DECODE=cuda`** (see the crash below) |
-| `IMAGE_DECODE` | `cuda`, `cpu` | **use `cpu`** for new runs; default kept `cuda` because the A2 val100 run used it |
+| `IMAGE_DECODE` | `cpu`, `cuda` | `cpu` since 2026-11-14 (A1.5 val100 + dev100, 3 per driver: 200 scenes, ~36k steps, 0 crashes); the A2 val100 run used `cuda` at 1 per driver |
 | `TOPOLOGY` | `4gpu_a2super` (drivers GPUs 6-7, renderer + physics 4-5), `8gpu_a2super` (drivers 4-7, renderer 0-3) | a 34B driver needs a whole A100 (~70-76 GB) |
 | route | `MAP`, offset 0 (upstream's default); `RECORDED`, offset 0 for `alpamayo2_satnav` | `ROUTE_OFFSET_OVERRIDE=40.0` reproduces the pre-2026-11-13 runs |
 | `SMOKE=<n>` | | only the first n scenes of the suite |
@@ -95,8 +97,8 @@ wrong way). So the navigation source matters little for A2.
 inf, nan or element < 0' failed` in CoC sampling kills the driver's CUDA context (every later call fails with CUDA
 error 710). Seen with `image_decode_device: cuda` (upstream's default) and 3 scenes per driver: A2 lost 3 of 4 drivers
 within ~1 h; A1.5 asserted after 7 steps. Not seen with 1 scene per driver (A2 val100: 100 scenes, 0 crashes) or
-with CPU decoding (A1.5, 3 per driver: 3,000+ steps clean; the old e2e-main A1.5 runs decoded on the CPU, ~540
-scenes, 0 crashes). Likely mechanism (not traced): nvJPEG decodes one scene's frames in a gRPC thread while the model
+with CPU decoding (A1.5, 3 per driver: val100 + dev100, 200 scenes, ~36k steps, 0 crashes; the old e2e-main A1.5 runs
+decoded on the CPU, ~540 scenes, 0 crashes). Likely mechanism (not traced): nvJPEG decodes one scene's frames in a gRPC thread while the model
 runs another scene's inference on the same GPU, and the caching allocator reuses memory across streams. Possibly an
 upstream bug worth reporting.
 
@@ -114,15 +116,39 @@ Run folders under `alpamayo_eval_results/` are in `/mnt/efs/users/rod/repos/alpa
 |---|---|---|---|---|---|---|
 | Claude teacher `gt_rq25_3db3` (Opus) | `/mnt/efs/data/AgenticDriver/agentic_driver_data/trials/rod-frames/eval/val100/claude_gt_rq25_3db3_us.anthropic.claude-opus-5-5/` | **0.671** +- 0.043 | 25 / 25 / 50 | 10 | 4 | 11 |
 | **Alpamayo 2 Super**, `alpamayo2_nav`, route from the car | `alpamayo_eval_results/2026-11-13_a2super_navupstream_4gpu_conc1_val100/` | **0.590** +- 0.048 | 38 / 13 / 49 | 7 | 13 | 18 |
+| Alpamayo 1.5, route from the car (this branch, CPU decode, 3 per driver) | `alpamayo_eval_results/2026-11-13_a15_navupstream_cpudecode_4gpu_val100/` | **0.565** +- 0.049 | 42 / 7 / 51 | 8 | 10 | 24 |
 | Alpamayo 1.5, route from the car (e2e-main) | `/mnt/efs/users/rod/repos/alpasim/eval_alpamayo1_5_curated_val_nav_off0_ip-10-225-141-207_1023_2117/` (441 scenes; 0.572 on all) | **0.567** +- 0.048 | 40 / 11 / 49 | 9 | 9 | 22 |
 | Alpamayo 1.5, route from 40 m (e2e-main) | `alpamayo_eval_results/2026-10-20_curated_val/` (441; 0.561 on all) | 0.552 +- 0.049 | 43 / 4 / 53 | 8 | 10 | 25 |
 
 Paired on the same scenes: teacher - A2 = +0.082 +- 0.057 (teacher better 31, A2 better 26, tie 43);
-A2 - A1.5 (route from the car) = +0.022 +- 0.044 (14 / 18 / 68). Run-to-run noise of one client is ~0.07, so neither
-gap is settled by one rollout. Per-scene scores of all three: `2026-11-13_a2super_navupstream_4gpu_conc1_val100/
+A2 - A1.5 (route from the car, e2e-main) = +0.022 +- 0.044 (14 / 18 / 68); A2 - A1.5 (this branch) = +0.025 +- 0.047
+(16 / 17 / 67). A1.5 on this branch vs on e2e-main, same settings: -0.003 +- 0.041, so the branch's simulator is
+e2e-main's. Run-to-run noise of one client is ~0.07, so neither gap is settled by one rollout. Per-scene scores of all three: `2026-11-13_a2super_navupstream_4gpu_conc1_val100/
 val100_three_way.json`. A2 drives further (164.5 m vs the teacher's 140.6 m) and rarely collides; it fails by leaving
-the road or the corridor. NVIDIA's published "AlpaSim Score 1.50" (913 scenes) is on an undocumented, different scale.
+the road or the corridor.
 
-dev100: A1.5 0.586 (`2026-11-06_dev100`, route from 40 m), teacher 0.715 (2 rollouts). In progress / queued on
-2026-11-13: A1.5 val100 on this stack (`2026-11-13_a15_navupstream_cpudecode_4gpu_val100`, CPU decode, 3 per driver:
-checks this stack against the e2e-main number), then A1.5 dev100 with the route from the car.
+NVIDIA's model-card "AlpaSim Score" (A2 Super 1.50 +- 0.13 on 913 scenes, A1.5 1.37) is **km between incidents**
+(Alpamayo-R1 paper, Sec. 6.1), not the scene score. The card does not say whether it counts all incidents or only
+at-fault ones; Alpasim reports both (`avg_dist_between_incidents[_at_fault]` in `aggregate/metrics_results.txt`).
+Ours on val100: A2 0.57 / 0.82 km, A1.5 0.63 / 0.87 km (all / at fault). Different scenes and settings, so not
+directly comparable to 1.50.
+
+Paper-table rows (val100; score, at-fault km per incident, then % of scenes):
+
+| client | score | km/inc. (at fault) | at-fault coll. | off-road | corridor | progress |
+|---|---|---|---|---|---|---|
+| Alpamayo 1.5 (this branch) | 56.5 | 0.870 | 8.0 | 10.0 | 24.0 | 77.9 |
+| Alpamayo 2 Super | 59.0 | 0.823 | 7.0 | 13.0 | 19.0 | 77.9 |
+| Claude teacher `gt_rq25_3db3` (Opus) | 67.1 | 1.00 | 10.0 | 4.0 | 12.0 | 73.1 |
+
+### dev100 (100 curated_train scenes)
+
+| client | run | mean | failed / partial / full | km/inc. all / at fault | at-fault coll. | off-road | corridor | progress |
+|---|---|---|---|---|---|---|---|---|
+| Alpamayo 1.5, route from the car (this branch) | `alpamayo_eval_results/2026-11-14_a15_navupstream_cpudecode_4gpu_dev100/` | **0.625** +- 0.048 | 36 / 5 / 59 | 0.64 / 0.840 | 2 | 14 | 20 | 77.5 |
+| Alpamayo 1.5, route from 40 m (e2e-main) | `alpamayo_eval_results/2026-11-06_dev100/` | 0.586 +- 0.049 | 40 / 6 / 54 | 0.73 / 0.871 | 5 | 11 | 24 | 76.0 |
+| Claude teacher `gt_rq25_3db3` (Opus, 2 rollouts) | rod-frames trial | 0.715 | | | | | | |
+
+Route from the car vs from 40 m, paired: +0.039 +- 0.037 (better 12, worse 9, tie 79): the same direction as on
+curated_val (+0.011), within noise. dev100 took 8.6 h on GPUs 4-7 (7.7 s per driver call at 3 per driver with CPU
+decode; the e2e-main run, 8 GPUs, 4.7 s).
