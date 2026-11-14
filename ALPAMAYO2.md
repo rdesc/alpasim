@@ -151,4 +151,4 @@ Paper-table rows (val100; score, at-fault km per incident, then % of scenes):
 
 Route from the car vs from 40 m, paired: +0.039 +- 0.037 (better 12, worse 9, tie 79): the same direction as on
 curated_val (+0.011), within noise. dev100 took 8.6 h on GPUs 4-7 (7.7 s per driver call at 3 per driver with CPU
-decode; the e2e-main run, 8 GPUs, 4.7 s).
+decode; the e2e-main run: 4.7 s).
